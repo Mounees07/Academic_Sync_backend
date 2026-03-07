@@ -30,14 +30,16 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/public/**").permitAll()
-                        .requestMatchers("/api/users/register").permitAll()
-                        .requestMatchers("/api/users/**").permitAll() // Allow profile checks and registration
-                        .requestMatchers("/api/seed/**").permitAll() // Allow seeding data
-                        .requestMatchers("/api/leaves/parent-view/**").permitAll()
-                        .requestMatchers("/api/leaves/parent-action/**").permitAll()
-                        .requestMatchers("/error").permitAll()
-                        .anyRequest().authenticated())
+        .requestMatchers("/").permitAll()   // ✅ Allow root
+        .requestMatchers("/api/public/**").permitAll()
+        .requestMatchers("/api/users/register").permitAll()
+        .requestMatchers("/api/users/**").permitAll()
+        .requestMatchers("/api/seed/**").permitAll()
+        .requestMatchers("/api/leaves/parent-view/**").permitAll()
+        .requestMatchers("/api/leaves/parent-action/**").permitAll()
+        .requestMatchers("/error").permitAll()
+        .anyRequest().authenticated()
+)
                 .addFilterBefore(new FirebaseTokenFilter(userService, systemSettingService),
                         UsernamePasswordAuthenticationFilter.class);
 
