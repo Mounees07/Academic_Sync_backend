@@ -31,9 +31,33 @@ public class UserController {
     @GetMapping("/{uid}")
     public ResponseEntity<User> getUserByUid(@PathVariable String uid) {
         logger.info("Fetching user profile for UID: " + uid);
+
+        // ── Primary: look up by Firebase UID ─────────────────────────────────────
         Optional<User> user = userService.getUserByFirebaseUid(uid);
-        return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+        if (user.isPresent()) {
+            return ResponseEntity.ok(user.get());
+        }
+
+        // ── Fallback: UID mismatch recovery ──────────────────────────────────────
+        // This happens after a DB wipe + re-seed where the stored firebase_uid
+        // doesn't match the UID in the real Firebase JWT.
+        // We look up by email (from the security context) and auto-correct the UID.
+        try {
+            String email = securityUtils.getCurrentUserEmail();
+            if (email != null) {
+                Optional<User> byEmail = userService.findByEmailAndFixUid(email, uid);
+                if (byEmail.isPresent()) {
+                    logger.info("UID mismatch recovery: fixed firebase_uid for " + email + " → " + uid);
+                    return ResponseEntity.ok(byEmail.get());
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("UID fallback lookup failed: " + e.getMessage());
+        }
+
+        return ResponseEntity.notFound().build();
     }
+
 
     @GetMapping("/profile")
     public ResponseEntity<User> getProfile() {

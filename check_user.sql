@@ -1,1 +1,2 @@
-SELECT id, firebase_uid, email, full_name, role FROM users WHERE firebase_uid = 'HCxoIHTmetOtrPRZ5liCNaC4dAy2';
+-- Real Firebase UID for sankavi8881@gmail.com (verified from JWT logs 2026-03-07)
+SELECT * FROM users WHERE firebase_uid = 'K7ToDHiFiYSt0IuQM17sG7Ajv9i1';

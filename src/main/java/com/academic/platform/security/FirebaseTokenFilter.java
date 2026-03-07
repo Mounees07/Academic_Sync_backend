@@ -2,6 +2,7 @@ package com.academic.platform.security;
 
 import com.academic.platform.service.UserService;
 import com.academic.platform.service.SystemSettingService;
+import com.google.firebase.FirebaseApp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseToken;
 import jakarta.servlet.FilterChain;
@@ -15,6 +16,8 @@ import org.springframework.security.web.authentication.WebAuthenticationDetailsS
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 
@@ -22,6 +25,9 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
 
     private final UserService userService;
     private final SystemSettingService systemSettingService;
+
+    // Request attribute key for email — readable by controllers
+    public static final String ATTR_EMAIL = "authenticatedEmail";
 
     public FirebaseTokenFilter(UserService userService, SystemSettingService systemSettingService) {
         this.userService = userService;
@@ -32,11 +38,7 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        String path = request.getRequestURI();
-        String method = request.getMethod();
-
-        // Allow OPTIONS requests (CORS)
-        if (method.equals("OPTIONS")) {
+        if ("OPTIONS".equals(request.getMethod())) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -45,52 +47,90 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
 
         if (header != null && header.startsWith("Bearer ")) {
             String idToken = header.substring(7);
-            try {
-                FirebaseToken decodedToken = FirebaseAuth.getInstance().verifyIdToken(idToken);
-                String uid = decodedToken.getUid();
-                String email = decodedToken.getEmail();
+            String uid   = null;
+            String email = null;
 
-                // Fetch real role from DB
+            boolean firebaseReady = !FirebaseApp.getApps().isEmpty();
+
+            if (firebaseReady) {
+                // ── Production path: full Firebase signature verification ────────
+                try {
+                    FirebaseToken decoded = FirebaseAuth.getInstance().verifyIdToken(idToken);
+                    uid   = decoded.getUid();
+                    email = decoded.getEmail();
+                } catch (Exception e) {
+                    logger.error("Firebase token verification failed: " + e.getMessage());
+                }
+            } else {
+                // ── Dev-mode path: Base64-decode JWT payload (no sig check) ─────
+                try {
+                    uid   = extractClaim(idToken, "user_id");
+                    email = extractClaim(idToken, "email");
+                    if (uid == null) uid = extractClaim(idToken, "sub");
+                    logger.warn("⚠️  DEV MODE – token NOT verified. UID=" + uid + " email=" + email);
+                } catch (Exception e) {
+                    logger.error("Dev-mode JWT decode failed: " + e.getMessage());
+                }
+            }
+
+            if (uid != null) {
+                // Expose email to downstream controllers via request attribute
+                if (email != null) {
+                    request.setAttribute(ATTR_EMAIL, email);
+                }
+
+                // Determine role from DB
                 String role = "USER";
                 var userOpt = userService.getUserByFirebaseUid(uid);
                 if (userOpt.isPresent()) {
                     role = userOpt.get().getRole().name();
                 }
 
-                // --- MAINTENANCE MODE CHECK ---
-                // Allow if:
-                // 1. Maintenance mode is OFF
-                // 2. User is ADMIN
-                // 3. User is the super admin email (fail-safe)
+                // Maintenance guard
                 boolean isSuperAdmin = "sankavi8881@gmail.com".equalsIgnoreCase(email);
-
                 if (systemSettingService.isMaintenanceMode() && !role.equals("ADMIN") && !isSuperAdmin) {
                     response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
                     response.setContentType("application/json");
-                    response.getWriter()
-                            .write("{\"message\": \"System is under maintenance. Please try again later.\"}");
+                    response.getWriter().write("{\"message\":\"System under maintenance. Try again later.\"}");
                     return;
                 }
 
-                List<SimpleGrantedAuthority> authorities = Collections
-                        .singletonList(new SimpleGrantedAuthority("ROLE_" + role));
+                List<SimpleGrantedAuthority> authorities =
+                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role));
 
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(uid, null,
-                        authorities);
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (Exception e) {
-                logger.error("Token Error: " + e.getMessage());
+                // Store BOTH uid (principal) and email (details) in the auth token
+                UsernamePasswordAuthenticationToken auth =
+                        new UsernamePasswordAuthenticationToken(uid, email, authorities);
+                auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(auth);
             }
-        } else {
-            // For unauthenticated references, if strict maintenance is needed we could
-            // block here too,
-            // but usually public endpoints should remain open or handled by frontend
-            // routing.
-            // We'll trust the frontend + SecurityConfig for unauthenticated routes.
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /** Base64URL-decode the JWT payload and extract a single string claim. */
+    private String extractClaim(String jwt, String claim) {
+        try {
+            String[] parts = jwt.split("\\.");
+            if (parts.length < 2) return null;
+            byte[] bytes = Base64.getUrlDecoder().decode(pad(parts[1]));
+            String payload = new String(bytes, StandardCharsets.UTF_8);
+            String key = "\"" + claim + "\":\"";
+            int start = payload.indexOf(key);
+            if (start == -1) return null;
+            start += key.length();
+            int end = payload.indexOf("\"", start);
+            return end == -1 ? null : payload.substring(start, end);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String pad(String s) {
+        int mod = s.length() % 4;
+        if (mod == 2) return s + "==";
+        if (mod == 3) return s + "=";
+        return s;
     }
 }

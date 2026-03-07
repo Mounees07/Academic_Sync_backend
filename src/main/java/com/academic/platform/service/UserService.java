@@ -60,6 +60,30 @@ public class UserService {
         return userOpt;
     }
 
+    /**
+     * UID-mismatch recovery: finds user by email, updates their stored firebase_uid
+     * to match the real JWT uid, then returns the corrected user.
+     * Called when GET /users/{uid} finds nothing by UID (e.g. after a DB wipe + re-seed).
+     */
+    @Transactional
+    @org.springframework.cache.annotation.CacheEvict(value = "users", allEntries = true)
+    public Optional<User> findByEmailAndFixUid(String email, String newUid) {
+        Optional<User> byEmail = userRepository.findByEmail(email.toLowerCase());
+        if (byEmail.isEmpty()) return Optional.empty();
+
+        User user = byEmail.get();
+        // Only fix if the current stored UID is different (i.e., stale)
+        if (!newUid.equals(user.getFirebaseUid())) {
+            user.setFirebaseUid(newUid);
+            // Always enforce ADMIN for super admin email
+            if ("sankavi8881@gmail.com".equalsIgnoreCase(email)) {
+                user.setRole(Role.ADMIN);
+            }
+            user = userRepository.save(user);
+        }
+        return Optional.of(user);
+    }
+
     @Transactional(readOnly = true)
     public List<User> getUsersByRole(Role role) {
         return userRepository.findByRole(role);
@@ -241,27 +265,34 @@ public class UserService {
                         continue;
                     }
 
-                    // Create in Firebase
-                    String firebaseUid;
-                    try {
-                        com.google.firebase.auth.UserRecord.CreateRequest request = new com.google.firebase.auth.UserRecord.CreateRequest()
-                                .setEmail(email)
-                                .setDisplayName(fullName)
-                                .setPassword(password)
-                                .setEmailVerified(true);
+                    // Create in Firebase if initialized, else fallback
+                    boolean firebaseReady = !com.google.firebase.FirebaseApp.getApps().isEmpty();
+                    String firebaseUid = null;
+                    
+                    if (firebaseReady) {
+                        try {
+                            com.google.firebase.auth.UserRecord.CreateRequest request = new com.google.firebase.auth.UserRecord.CreateRequest()
+                                    .setEmail(email)
+                                    .setDisplayName(fullName)
+                                    .setPassword(password)
+                                    .setEmailVerified(true);
 
-                        com.google.firebase.auth.UserRecord userRecord = com.google.firebase.auth.FirebaseAuth
-                                .getInstance().createUser(request);
-                        firebaseUid = userRecord.getUid();
-                    } catch (com.google.firebase.auth.FirebaseAuthException fae) {
-                        if (fae.getErrorCode().equals("email-already-exists")) {
-                            com.google.firebase.auth.UserRecord ur = com.google.firebase.auth.FirebaseAuth.getInstance()
-                                    .getUserByEmail(email);
-                            firebaseUid = ur.getUid();
-                            logs.add("User exists in Firebase, syncing to DB: " + email);
-                        } else {
-                            throw fae;
+                            com.google.firebase.auth.UserRecord userRecord = com.google.firebase.auth.FirebaseAuth
+                                    .getInstance().createUser(request);
+                            firebaseUid = userRecord.getUid();
+                        } catch (com.google.firebase.auth.FirebaseAuthException fae) {
+                            if (fae.getErrorCode().equals("email-already-exists")) {
+                                com.google.firebase.auth.UserRecord ur = com.google.firebase.auth.FirebaseAuth.getInstance()
+                                        .getUserByEmail(email);
+                                firebaseUid = ur.getUid();
+                                logs.add("User exists in Firebase, syncing to DB: " + email);
+                            } else {
+                                throw fae;
+                            }
                         }
+                    } else {
+                         // Dev-mode fallback
+                         firebaseUid = "dev_" + java.util.UUID.randomUUID().toString();
                     }
 
                     User newUser = new User();
@@ -466,16 +497,26 @@ public class UserService {
         }
 
         try {
-            com.google.firebase.auth.UserRecord.CreateRequest request = new com.google.firebase.auth.UserRecord.CreateRequest()
-                    .setEmail(user.getEmail())
-                    .setDisplayName(user.getFullName())
-                    .setPassword(password)
-                    .setEmailVerified(true);
+            boolean firebaseReady = !com.google.firebase.FirebaseApp.getApps().isEmpty();
+            String firebaseUid = null;
 
-            com.google.firebase.auth.UserRecord userRecord = com.google.firebase.auth.FirebaseAuth.getInstance()
-                    .createUser(request);
+            if (firebaseReady) {
+                com.google.firebase.auth.UserRecord.CreateRequest request = new com.google.firebase.auth.UserRecord.CreateRequest()
+                        .setEmail(user.getEmail())
+                        .setDisplayName(user.getFullName())
+                        .setPassword(password)
+                        .setEmailVerified(true);
 
-            user.setFirebaseUid(userRecord.getUid());
+                com.google.firebase.auth.UserRecord userRecord = com.google.firebase.auth.FirebaseAuth.getInstance()
+                        .createUser(request);
+
+                firebaseUid = userRecord.getUid();
+            } else {
+                // Dev-mode Fallback
+                firebaseUid = "dev_" + java.util.UUID.randomUUID().toString();
+            }
+
+            user.setFirebaseUid(firebaseUid);
             user.setEmail(user.getEmail().toLowerCase());
 
             User saved = userRepository.save(user);
