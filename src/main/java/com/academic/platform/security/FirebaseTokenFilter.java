@@ -38,10 +38,19 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
+        String path = request.getRequestURI();
+
         if ("OPTIONS".equals(request.getMethod())) {
             filterChain.doFilter(request, response);
             return;
         }
+        if (path.startsWith("/api/public") ||
+        path.startsWith("/api/users/register") ||
+        path.startsWith("/error")) {
+
+        filterChain.doFilter(request, response);
+        return;
+    }
 
         String header = request.getHeader("Authorization");
 

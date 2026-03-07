@@ -28,7 +28,7 @@ public class SecurityConfig {
             throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(AbstractHttpConfigurer::disable)
+                .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/public/**").permitAll()
                         .requestMatchers("/api/users/register").permitAll()
@@ -37,7 +37,6 @@ public class SecurityConfig {
                         .requestMatchers("/api/leaves/parent-view/**").permitAll()
                         .requestMatchers("/api/leaves/parent-action/**").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers(org.springframework.http.HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(new FirebaseTokenFilter(userService, systemSettingService),
                         UsernamePasswordAuthenticationFilter.class);
@@ -48,7 +47,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("*")); // Correct way to allow all with credentials
+        configuration.setAllowedOriginPatterns(Arrays.asList("https://adadamic-sync-frontend-ufaq.vercel.app")); // Correct way to allow all with credentials
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("*")); // Support all headers during development
         configuration.setAllowCredentials(true);
