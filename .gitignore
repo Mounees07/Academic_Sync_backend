@@ -7,7 +7,11 @@ backend/target/
 backend/*.jar
 backend/target/academic-platform-0.0.1-SNAPSHOT.jar
 # Firebase
-# Firebase secret
+# Firebase secret — NEVER commit service account keys!
+src/main/resources/firebase-service-account.json
+src/main/resources/firebase-service-account.json.json
+firebase-service-account.json
+firebase-service-account.json.json
 
 # Node
 node_modules/

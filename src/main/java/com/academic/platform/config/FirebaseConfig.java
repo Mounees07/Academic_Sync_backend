@@ -7,37 +7,68 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 
 import javax.annotation.PostConstruct;
-import java.io.IOException;
+import java.io.InputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 
 @Configuration
 public class FirebaseConfig {
 
-    private static final Logger logger = Logger.getLogger(FirebaseConfig.class.getName());
+    private static final Logger logger =
+            Logger.getLogger(FirebaseConfig.class.getName());
 
     @PostConstruct
     public void initialize() {
-        try {
-            ClassPathResource resource = new ClassPathResource("firebase-service-account.json");
 
-            if (resource.exists()) {
-                FirebaseOptions options = FirebaseOptions.builder()
+        try {
+
+            // Prevent duplicate initialization
+            if (!FirebaseApp.getApps().isEmpty()) {
+                logger.info("ℹ️ Firebase already initialized.");
+                return;
+            }
+
+            FirebaseOptions options;
+
+            // 🔥 1️⃣ Production (Render) — Use Environment Variable
+            String firebaseConfig = System.getenv("FIREBASE_CONFIG");
+
+            if (firebaseConfig != null && !firebaseConfig.isBlank()) {
+
+                InputStream serviceAccount =
+                        new ByteArrayInputStream(
+                                firebaseConfig.getBytes(StandardCharsets.UTF_8)
+                        );
+
+                options = FirebaseOptions.builder()
+                        .setCredentials(GoogleCredentials.fromStream(serviceAccount))
+                        .build();
+
+                logger.info("🔥 Firebase initialized using ENV variable (Production Mode)");
+
+            } else {
+
+                // 🖥 2️⃣ Development — Use Local JSON File
+                ClassPathResource resource =
+                        new ClassPathResource("firebase-service-account.json");
+
+                if (!resource.exists()) {
+                    logger.severe("❌ Firebase config not found in ENV or resources folder.");
+                    return;
+                }
+
+                options = FirebaseOptions.builder()
                         .setCredentials(GoogleCredentials.fromStream(resource.getInputStream()))
                         .build();
 
-                if (FirebaseApp.getApps().isEmpty()) {
-                    FirebaseApp.initializeApp(options);
-                    logger.info("✅ Firebase Admin SDK initialized successfully.");
-                } else {
-                    logger.info("ℹ️ Firebase App already exists.");
-                }
-            } else {
-                logger.severe(
-                        "❌ CRITICAL: firebase-service-account.json NOT FOUND in src/main/resources. All authenticated requests will fail with 403.");
+                logger.info("🔥 Firebase initialized using local JSON file (Dev Mode)");
             }
-        } catch (IOException e) {
-            logger.severe("❌ Error initializing Firebase Admin SDK: " + e.getMessage());
-            e.printStackTrace();
+
+            FirebaseApp.initializeApp(options);
+
+        } catch (Exception e) {
+            logger.severe("❌ Firebase initialization failed: " + e.getMessage());
         }
     }
 }
