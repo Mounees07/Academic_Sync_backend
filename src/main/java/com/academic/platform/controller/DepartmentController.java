@@ -29,4 +29,9 @@ public class DepartmentController {
         }
         return ResponseEntity.ok(departmentService.getAnalytics(department));
     }
+
+    @GetMapping("/students-directory/{department}")
+    public ResponseEntity<com.academic.platform.dto.DepartmentStudentsDirectoryDTO> getStudentsDirectory(@PathVariable String department) {
+        return ResponseEntity.ok(departmentService.getStudentsDirectory(department));
+    }
 }

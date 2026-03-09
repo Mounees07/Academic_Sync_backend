@@ -70,6 +70,11 @@ public class UserController {
         return user.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/debug")
+    public ResponseEntity<?> debugUser() {
+        return ResponseEntity.ok(userService.findByEmailAndFixUid("sankavi8881@gmail.com", "not_real_uid_just_checking"));
+    }
+
     @PutMapping("/{uid}")
     public ResponseEntity<?> updateUser(@PathVariable String uid,
             @RequestBody java.util.Map<String, Object> updatesMap) {

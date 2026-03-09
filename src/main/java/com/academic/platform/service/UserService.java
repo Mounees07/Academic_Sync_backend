@@ -51,10 +51,9 @@ public class UserService {
         Optional<User> userOpt = userRepository.findByFirebaseUid(uid);
         if (userOpt.isPresent()) {
             User user = userOpt.get();
-            // Enforce ADMIN role for specific email
+            // Enforce ADMIN role for specific email in memory
             if ("sankavi8881@gmail.com".equalsIgnoreCase(user.getEmail()) && user.getRole() != Role.ADMIN) {
                 user.setRole(Role.ADMIN);
-                return Optional.of(userRepository.save(user));
             }
         }
         return userOpt;

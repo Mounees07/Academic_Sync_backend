@@ -49,7 +49,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("https://adadamic-sync-frontend-ufaq.vercel.app")); // Correct way to allow all with credentials
+        configuration.setAllowedOriginPatterns(Arrays.asList("https://adadamic-sync-frontend-ufaq.vercel.app", "http://localhost:5173", "http://localhost:5174")); // Correct way to allow all with credentials
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("*")); // Support all headers during development
         configuration.setAllowCredentials(true);

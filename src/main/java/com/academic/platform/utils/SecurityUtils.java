@@ -18,11 +18,18 @@ public class SecurityUtils {
         return null;
     }
 
-    /**
-     * Returns the email of the currently authenticated user.
-     * FirebaseTokenFilter stores the email as the credentials value.
-     */
     public String getCurrentUserEmail() {
+        try {
+            org.springframework.web.context.request.ServletRequestAttributes attributes = 
+                (org.springframework.web.context.request.ServletRequestAttributes) org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+            if (attributes != null) {
+                Object emailAttr = attributes.getRequest().getAttribute("authenticatedEmail");
+                if (emailAttr instanceof String email && !email.isBlank()) {
+                    return email;
+                }
+            }
+        } catch (Exception e) {}
+
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null) return null;
         Object credentials = auth.getCredentials();

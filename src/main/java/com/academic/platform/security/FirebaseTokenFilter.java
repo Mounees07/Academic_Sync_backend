@@ -45,7 +45,6 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
             return;
         }
         if (path.startsWith("/api/public") ||
-        path.startsWith("/api/users/register") ||
         path.startsWith("/error")) {
 
         filterChain.doFilter(request, response);

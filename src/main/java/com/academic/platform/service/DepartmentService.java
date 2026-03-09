@@ -163,4 +163,35 @@ public class DepartmentService {
 
                 return dto;
         }
+
+        public com.academic.platform.dto.DepartmentStudentsDirectoryDTO getStudentsDirectory(String department) {
+                List<User> students = userRepository.findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(department, Collections.singletonList(Role.STUDENT));
+                
+                int ug = 0;
+                int pg = 0;
+                int atRisk = 0;
+                
+                for (User s : students) {
+                        String degree = s.getStudentDetails().getDegreeLevel();
+                        String course = s.getStudentDetails().getCourseName() == null ? "" : s.getStudentDetails().getCourseName().toUpperCase();
+                        if ("UG".equalsIgnoreCase(degree) || course.contains("B.SC") || course.contains("B.E") || course.contains("B.TECH") || course.startsWith("B")) {
+                                ug++;
+                        } else if ("PG".equalsIgnoreCase(degree) || course.contains("M.SC") || course.contains("M.E") || course.contains("M.TECH") || course.startsWith("M")) {
+                                pg++;
+                        }
+                        
+                        Double gpa = s.getStudentDetails().getGpa();
+                        if (gpa == null) gpa = s.getStudentDetails().getCgpa();
+                        if ((gpa != null && gpa < 6.0) || "Academic Warning".equalsIgnoreCase(s.getStudentDetails().getStudentStatus())) {
+                                atRisk++;
+                        }
+                }
+                
+                if (ug == 0 && pg == 0 && !students.isEmpty()) {
+                        ug = students.size();
+                }
+
+                com.academic.platform.dto.DepartmentStudentsDirectoryDTO.Stats stats = new com.academic.platform.dto.DepartmentStudentsDirectoryDTO.Stats(students.size(), ug, pg, atRisk);
+                return new com.academic.platform.dto.DepartmentStudentsDirectoryDTO(stats, students);
+        }
 }
