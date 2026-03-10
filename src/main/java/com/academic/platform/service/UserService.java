@@ -62,13 +62,15 @@ public class UserService {
     /**
      * UID-mismatch recovery: finds user by email, updates their stored firebase_uid
      * to match the real JWT uid, then returns the corrected user.
-     * Called when GET /users/{uid} finds nothing by UID (e.g. after a DB wipe + re-seed).
+     * Called when GET /users/{uid} finds nothing by UID (e.g. after a DB wipe +
+     * re-seed).
      */
     @Transactional
     @org.springframework.cache.annotation.CacheEvict(value = "users", allEntries = true)
     public Optional<User> findByEmailAndFixUid(String email, String newUid) {
         Optional<User> byEmail = userRepository.findByEmail(email.toLowerCase());
-        if (byEmail.isEmpty()) return Optional.empty();
+        if (byEmail.isEmpty())
+            return Optional.empty();
 
         User user = byEmail.get();
         // Only fix if the current stored UID is different (i.e., stale)
@@ -103,8 +105,16 @@ public class UserService {
     @Cacheable(value = "faculty", key = "#department")
     @Transactional(readOnly = true)
     public List<User> getFacultyByDepartment(String department) {
-        return userRepository.findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(department,
-                List.of(Role.TEACHER, Role.MENTOR));
+        List<Role> facultyRoles = List.of(Role.TEACHER, Role.MENTOR, Role.HOD, Role.PRINCIPAL);
+        // First try strict department match
+        List<User> strictMatch = userRepository.findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(department,
+                facultyRoles);
+        if (!strictMatch.isEmpty()) {
+            return strictMatch;
+        }
+        // Fallback: also include faculty with no department set (common for
+        // legacy/incomplete profiles)
+        return userRepository.findFacultyByDepartmentOrNoDepartment(department, facultyRoles);
     }
 
     @Transactional(readOnly = true)
@@ -267,7 +277,7 @@ public class UserService {
                     // Create in Firebase if initialized, else fallback
                     boolean firebaseReady = !com.google.firebase.FirebaseApp.getApps().isEmpty();
                     String firebaseUid = null;
-                    
+
                     if (firebaseReady) {
                         try {
                             com.google.firebase.auth.UserRecord.CreateRequest request = new com.google.firebase.auth.UserRecord.CreateRequest()
@@ -281,7 +291,8 @@ public class UserService {
                             firebaseUid = userRecord.getUid();
                         } catch (com.google.firebase.auth.FirebaseAuthException fae) {
                             if (fae.getErrorCode().equals("email-already-exists")) {
-                                com.google.firebase.auth.UserRecord ur = com.google.firebase.auth.FirebaseAuth.getInstance()
+                                com.google.firebase.auth.UserRecord ur = com.google.firebase.auth.FirebaseAuth
+                                        .getInstance()
                                         .getUserByEmail(email);
                                 firebaseUid = ur.getUid();
                                 logs.add("User exists in Firebase, syncing to DB: " + email);
@@ -290,8 +301,8 @@ public class UserService {
                             }
                         }
                     } else {
-                         // Dev-mode fallback
-                         firebaseUid = "dev_" + java.util.UUID.randomUUID().toString();
+                        // Dev-mode fallback
+                        firebaseUid = "dev_" + java.util.UUID.randomUUID().toString();
                     }
 
                     User newUser = new User();

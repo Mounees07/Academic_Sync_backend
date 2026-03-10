@@ -3,6 +3,8 @@ package com.academic.platform.repository;
 import com.academic.platform.model.User;
 import com.academic.platform.model.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 import java.util.List;
 
@@ -26,6 +28,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByStudentDetails_DepartmentAndRoleIn(String department, List<Role> roles);
 
     List<User> findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(String department, List<Role> roles);
+
+    /**
+     * Find faculty/HOD by department (case-insensitive).
+     * Also includes users whose studentDetails has no department set (null or
+     * blank)
+     * so that faculty who haven't been assigned a department still appear.
+     */
+    @Query("SELECT u FROM User u LEFT JOIN u.studentDetails sd WHERE u.role IN :roles AND " +
+            "(LOWER(sd.department) = LOWER(:department) OR sd.department IS NULL OR sd.department = '')")
+    List<User> findFacultyByDepartmentOrNoDepartment(@Param("department") String department,
+            @Param("roles") List<Role> roles);
 
     Optional<User> findByStudentDetails_RollNumber(String rollNumber);
 
