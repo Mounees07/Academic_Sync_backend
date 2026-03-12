@@ -61,3 +61,4 @@ public class SystemSettingController {
         return ResponseEntity.ok(settingService.getPublicSettings());
     }
 }
+

@@ -13,7 +13,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/course-attendance")
-@CrossOrigin(origins = "http://localhost:3000")
+
 public class CourseAttendanceController {
 
     @Autowired
@@ -107,3 +107,4 @@ public class CourseAttendanceController {
         }
     }
 }
+

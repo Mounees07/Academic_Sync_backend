@@ -78,3 +78,4 @@ public class MeetingController {
         return ResponseEntity.ok(meetingService.updateMeeting(meetingId, meeting));
     }
 }
+

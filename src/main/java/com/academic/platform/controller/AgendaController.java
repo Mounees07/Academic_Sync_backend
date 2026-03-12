@@ -12,7 +12,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/agenda")
-@CrossOrigin(origins = { "http://localhost:5173", "http://10.10.188.128:5173" }, allowCredentials = "true")
+
 public class AgendaController {
 
     @Autowired
@@ -41,3 +41,4 @@ public class AgendaController {
         return ResponseEntity.ok(agendaService.updateAgendaItem(id, item));
     }
 }
+

@@ -91,11 +91,37 @@ public class DepartmentService {
                 dto.setActiveStudents(students.size());
                 dto.setActiveCourses(courseRepository.findByDepartment(department).size());
 
-                double avgAttendance = students.stream()
-                                .mapToDouble(u -> u.getStudentDetails().getAttendance() != null
-                                                ? u.getStudentDetails().getAttendance()
-                                                : 0.0)
-                                .average().orElse(0.0);
+                double totalPctSum = 0;
+                int countWithData = 0;
+                Map<Integer, List<Double>> yearAttendanceMap = new HashMap<>();
+
+                for(User u : students) {
+                        List<com.academic.platform.model.CourseAttendance> atts = courseAttendanceRepository
+                                        .findByStudentFirebaseUidOrderByMarkedAtDesc(u.getFirebaseUid());
+                        if(!atts.isEmpty()) {
+                                long attended = atts.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
+                                double pct = (attended * 100.0) / atts.size();
+                                totalPctSum += pct;
+                                countWithData++;
+                                
+                                Integer sem = u.getStudentDetails() != null ? u.getStudentDetails().getSemester() : 1;
+                                int year = sem != null ? (sem + 1) / 2 : 1;
+                                yearAttendanceMap.computeIfAbsent(year, k -> new ArrayList<>()).add(pct);
+                        } else {
+                                // Fallback to subject attendance if no course attendance
+                                // But CourseAttendance is primary.
+                                if (u.getStudentDetails() != null && u.getStudentDetails().getAttendance() != null) {
+                                        double defaultAtt = u.getStudentDetails().getAttendance();
+                                        totalPctSum += defaultAtt;
+                                        countWithData++;
+                                        Integer sem = u.getStudentDetails().getSemester();
+                                        int year = sem != null ? (sem + 1) / 2 : 1;
+                                        yearAttendanceMap.computeIfAbsent(year, k -> new ArrayList<>()).add(defaultAtt);
+                                }
+                        }
+                }
+
+                double avgAttendance = countWithData > 0 ? totalPctSum / countWithData : 0.0;
                 dto.setCurrentAvgAttendance(Math.round(avgAttendance * 10.0) / 10.0);
 
                 double avgGPA = students.stream()
@@ -126,20 +152,15 @@ public class DepartmentService {
                                 (k, v) -> trends.add(new DepartmentAnalyticsDTO.EnrollmentTrend(k, v.intValue())));
                 dto.setEnrollmentTrends(trends);
 
-                // 3. Attendance by Year
-                Map<Integer, Double> attendanceByYearMap = students.stream()
-                                .filter(u -> u.getStudentDetails().getSemester() != null)
-                                .collect(Collectors.groupingBy(
-                                                u -> (u.getStudentDetails().getSemester() + 1) / 2, // Sem 1,2 -> Year 1
-                                                Collectors.averagingDouble(
-                                                                u -> u.getStudentDetails().getAttendance() != null
-                                                                                ? u.getStudentDetails().getAttendance()
-                                                                                : 0.0)));
-
+                // 3. Attendance by Year (dynamically computed)
                 List<DepartmentAnalyticsDTO.AttendanceStats> attStats = new ArrayList<>();
-                attendanceByYearMap.forEach(
-                                (year, att) -> attStats.add(new DepartmentAnalyticsDTO.AttendanceStats("Year " + year,
-                                                Math.round(att * 10.0) / 10.0)));
+                yearAttendanceMap.forEach((year, pcts) -> {
+                        double yrAvg = pcts.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+                        attStats.add(new DepartmentAnalyticsDTO.AttendanceStats("Year " + year, Math.round(yrAvg * 10.0) / 10.0));
+                });
+                if (attStats.isEmpty()) {
+                        attStats.add(new DepartmentAnalyticsDTO.AttendanceStats("Year 1", 0.0));
+                }
                 dto.setAttendanceByYear(attStats);
 
                 // 4. Performance Distribution

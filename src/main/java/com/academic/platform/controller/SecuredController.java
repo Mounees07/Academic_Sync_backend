@@ -28,3 +28,4 @@ public class SecuredController {
         return response;
     }
 }
+

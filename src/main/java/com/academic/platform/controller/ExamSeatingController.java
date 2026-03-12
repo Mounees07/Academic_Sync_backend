@@ -76,3 +76,4 @@ public class ExamSeatingController {
         return ResponseEntity.ok(examSeatingService.getAllAllocations());
     }
 }
+

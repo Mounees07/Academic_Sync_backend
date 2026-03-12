@@ -13,7 +13,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payments")
-@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
+
 public class PaymentController {
 
     @Value("${razorpay.key.id}")
@@ -72,3 +72,4 @@ public class PaymentController {
         return ResponseEntity.status(400).body(Map.of("error", "Invalid payment details"));
     }
 }
+

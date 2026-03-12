@@ -36,3 +36,4 @@ public class ExamVenueController {
         return ResponseEntity.ok().build();
     }
 }
+

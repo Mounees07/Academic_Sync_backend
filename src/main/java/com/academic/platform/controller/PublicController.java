@@ -19,3 +19,4 @@ public class PublicController {
         return ResponseEntity.ok(settingService.getPublicSettings());
     }
 }
+

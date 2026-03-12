@@ -171,3 +171,4 @@ public class LeaveController {
         return ResponseEntity.ok(leaveService.updateSecurityExitEntry(leaveId, action));
     }
 }
+

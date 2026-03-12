@@ -45,3 +45,4 @@ public class VisitorController {
         return ResponseEntity.ok(visitorService.getActiveVisitors());
     }
 }
+

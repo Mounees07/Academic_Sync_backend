@@ -10,6 +10,7 @@ import com.academic.platform.model.User;
 import com.academic.platform.model.Lesson;
 import com.academic.platform.model.Quiz;
 import com.academic.platform.model.Question;
+import com.academic.platform.model.QuizAttempt;
 
 import com.academic.platform.repository.CourseRepository;
 import com.academic.platform.repository.SectionRepository;
@@ -21,13 +22,16 @@ import com.academic.platform.repository.UserRepository;
 import com.academic.platform.repository.LessonRepository;
 import com.academic.platform.repository.QuizRepository;
 import com.academic.platform.repository.QuestionRepository;
+import com.academic.platform.repository.QuizAttemptRepository;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -261,6 +265,9 @@ public class CourseService {
     @Autowired
     private QuestionRepository questionRepository;
 
+    @Autowired
+    private QuizAttemptRepository quizAttemptRepository;
+
     public List<com.academic.platform.model.Quiz> getCourseQuizzes(Long courseId) {
         return quizRepository.findByCourseId(courseId);
     }
@@ -284,16 +291,63 @@ public class CourseService {
     }
 
     public void deleteQuiz(Long quizId) {
-        if (!quizRepository.existsById(quizId)) {
-            throw new RuntimeException("Quiz not found");
-        }
-        quizRepository.deleteById(quizId);
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new RuntimeException("Quiz not found"));
+        quizAttemptRepository.deleteByQuiz(quiz);
+        quizRepository.delete(quiz);
     }
 
     public List<Enrollment> getStudentEnrollments(String studentUid) {
         User student = userRepository.findByFirebaseUid(studentUid)
                 .orElseThrow(() -> new RuntimeException("Student not found"));
         return enrollmentRepository.findByStudent(student);
+    }
+
+    public Map<String, Object> recordQuizAttempt(Long quizId, String studentUid, int score, int total, int percentage) {
+        Quiz quiz = quizRepository.findById(quizId)
+                .orElseThrow(() -> new RuntimeException("Quiz not found"));
+        User student = userRepository.findByFirebaseUid(studentUid)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        QuizAttempt attempt = quizAttemptRepository.findByQuizAndStudent(quiz, student)
+                .orElseGet(QuizAttempt::new);
+
+        attempt.setQuiz(quiz);
+        attempt.setStudent(student);
+        attempt.setScore(score);
+        attempt.setTotal(total);
+        attempt.setPercentage(percentage);
+        attempt.setSubmittedAt(LocalDateTime.now());
+
+        QuizAttempt saved = quizAttemptRepository.save(attempt);
+        return mapQuizAttempt(saved);
+    }
+
+    public List<Map<String, Object>> getStudentQuizAttempts(String studentUid) {
+        User student = userRepository.findByFirebaseUid(studentUid)
+                .orElseThrow(() -> new RuntimeException("Student not found"));
+
+        return quizAttemptRepository.findByStudentOrderBySubmittedAtDesc(student).stream()
+                .map(this::mapQuizAttempt)
+                .toList();
+    }
+
+    private Map<String, Object> mapQuizAttempt(QuizAttempt attempt) {
+        Quiz quiz = attempt.getQuiz();
+        Course course = quiz.getCourse();
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", attempt.getId());
+        response.put("quizId", quiz.getId());
+        response.put("title", quiz.getTitle());
+        response.put("courseId", course.getId());
+        response.put("subjectCode", course.getCode());
+        response.put("subjectName", course.getName());
+        response.put("score", attempt.getScore());
+        response.put("total", attempt.getTotal());
+        response.put("percentage", attempt.getPercentage());
+        response.put("submittedAt", attempt.getSubmittedAt());
+        return response;
     }
 
 }

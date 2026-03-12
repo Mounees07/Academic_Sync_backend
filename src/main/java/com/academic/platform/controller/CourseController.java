@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/courses")
@@ -144,4 +145,21 @@ public class CourseController {
         courseService.deleteQuiz(quizId);
         return ResponseEntity.ok().build();
     }
+
+    @PostMapping("/quizzes/{quizId}/attempts")
+    public ResponseEntity<Map<String, Object>> recordQuizAttempt(
+            @PathVariable Long quizId,
+            @RequestBody Map<String, Object> body) {
+        String studentUid = body.get("studentUid").toString();
+        int score = Integer.parseInt(body.get("score").toString());
+        int total = Integer.parseInt(body.get("total").toString());
+        int percentage = Integer.parseInt(body.get("percentage").toString());
+        return ResponseEntity.ok(courseService.recordQuizAttempt(quizId, studentUid, score, total, percentage));
+    }
+
+    @GetMapping("/quizzes/attempts/student/{studentUid}")
+    public ResponseEntity<List<Map<String, Object>>> getStudentQuizAttempts(@PathVariable String studentUid) {
+        return ResponseEntity.ok(courseService.getStudentQuizAttempts(studentUid));
+    }
 }
+

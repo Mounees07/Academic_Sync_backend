@@ -31,7 +31,7 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/seed")
-@CrossOrigin(origins = { "http://localhost:5173", "http://10.10.188.128:5173" }, allowCredentials = "true")
+
 public class SeedController {
 
     @Autowired
@@ -404,3 +404,4 @@ public class SeedController {
         }
     }
 }
+

@@ -24,3 +24,4 @@ public class AuditLogController {
         return ResponseEntity.ok(auditLogService.getRecentLogs());
     }
 }
+

@@ -72,3 +72,4 @@ public class ResultController {
         return ResponseEntity.ok(resultService.getSGPAHistory(uid));
     }
 }
+

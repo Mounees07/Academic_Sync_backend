@@ -29,6 +29,15 @@ public class LeaveRequest {
 
     private String mentorStatus = "PENDING"; // PENDING, APPROVED, REJECTED
 
+    // HOD approval level
+    private String hodStatus = "PENDING"; // PENDING, APPROVED, REJECTED
+
+    // Timestamps for each stage (used in leave timeline)
+    private LocalDateTime mentorAt; // when mentor acted
+    private LocalDateTime parentAt; // when parent acted
+    private LocalDateTime hodAt;    // when HOD acted
+    private LocalDateTime finalApprovedAt; // when all three approved
+
     private String parentActionToken; // Token for email link
 
     private String approvalOtp;
@@ -49,7 +58,9 @@ public class LeaveRequest {
     }
 
     public LeaveRequest(Long id, User student, String leaveType, LocalDate fromDate, LocalDate toDate, String reason,
-            String parentEmail, String parentStatus, String mentorStatus, String parentActionToken, String approvalOtp,
+            String parentEmail, String parentStatus, String mentorStatus, String hodStatus,
+            LocalDateTime mentorAt, LocalDateTime parentAt, LocalDateTime hodAt, LocalDateTime finalApprovedAt,
+            String parentActionToken, String approvalOtp,
             LocalDateTime approvalOtpExpiry, LocalDateTime actualExitTime, LocalDateTime actualReturnTime,
             LocalDateTime createdAt) {
         this.id = id;
@@ -61,6 +72,11 @@ public class LeaveRequest {
         this.parentEmail = parentEmail;
         this.parentStatus = parentStatus;
         this.mentorStatus = mentorStatus;
+        this.hodStatus = hodStatus;
+        this.mentorAt = mentorAt;
+        this.parentAt = parentAt;
+        this.hodAt = hodAt;
+        this.finalApprovedAt = finalApprovedAt;
         this.parentActionToken = parentActionToken;
         this.approvalOtp = approvalOtp;
         this.approvalOtpExpiry = approvalOtpExpiry;
@@ -221,6 +237,11 @@ public class LeaveRequest {
         private String parentEmail;
         private String parentStatus = "PENDING";
         private String mentorStatus = "PENDING";
+        private String hodStatus = "PENDING";
+        private LocalDateTime mentorAt;
+        private LocalDateTime parentAt;
+        private LocalDateTime hodAt;
+        private LocalDateTime finalApprovedAt;
         private String parentActionToken;
         private String approvalOtp;
         private LocalDateTime approvalOtpExpiry;
@@ -305,7 +326,8 @@ public class LeaveRequest {
 
         public LeaveRequest build() {
             return new LeaveRequest(id, student, leaveType, fromDate, toDate, reason, parentEmail, parentStatus,
-                    mentorStatus, parentActionToken, approvalOtp, approvalOtpExpiry, actualExitTime, actualReturnTime,
+                    mentorStatus, hodStatus, mentorAt, parentAt, hodAt, finalApprovedAt,
+                    parentActionToken, approvalOtp, approvalOtpExpiry, actualExitTime, actualReturnTime,
                     createdAt);
         }
     }

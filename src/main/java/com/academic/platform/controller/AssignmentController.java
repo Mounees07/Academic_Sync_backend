@@ -12,7 +12,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/assignments")
-@CrossOrigin(origins = { "http://localhost:5173", "http://10.10.188.128:5173" }, allowCredentials = "true")
 public class AssignmentController {
 
     @Autowired
@@ -62,3 +61,4 @@ public class AssignmentController {
         return ResponseEntity.ok(assignmentService.getSectionSubmissions(sectionId));
     }
 }
+

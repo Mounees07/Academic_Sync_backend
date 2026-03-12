@@ -14,12 +14,20 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import org.springframework.context.annotation.Lazy;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+    private static final List<String> ALLOWED_ORIGINS = List.of(
+            "https://adadamic-sync-frontend-ufaq.vercel.app",
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:5174"
+    );
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
@@ -49,9 +57,9 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("https://adadamic-sync-frontend-ufaq.vercel.app", "http://localhost:5173", "http://localhost:5174")); // Correct way to allow all with credentials
+        configuration.setAllowedOrigins(ALLOWED_ORIGINS);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(Arrays.asList("*")); // Support all headers during development
+        configuration.setAllowedHeaders(Collections.singletonList("*"));
         configuration.setAllowCredentials(true);
         configuration.setExposedHeaders(Collections.singletonList("Authorization"));
 
