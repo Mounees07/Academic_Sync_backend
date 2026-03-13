@@ -1,9 +1,11 @@
 package com.academic.platform.controller;
 
+import com.academic.platform.model.Role;
 import com.academic.platform.model.PlacementProfile;
 import com.academic.platform.model.User;
 import com.academic.platform.repository.PlacementProfileRepository;
 import com.academic.platform.repository.UserRepository;
+import com.academic.platform.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,11 +22,13 @@ public class PlacementProfileController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private SecurityUtils securityUtils;
+
     @GetMapping("/student/{uid}")
     public ResponseEntity<Map<String, Object>> getProfile(@PathVariable String uid) {
         PlacementProfile profile = profileRepo.findByStudentFirebaseUid(uid).orElse(null);
         if (profile == null) {
-            // Return empty profile
             Map<String, Object> empty = new LinkedHashMap<>();
             empty.put("resumeUploaded", false);
             empty.put("skillsCompleted", 0);
@@ -42,6 +46,15 @@ public class PlacementProfileController {
     public ResponseEntity<Map<String, Object>> updateProfile(
             @PathVariable String uid,
             @RequestBody Map<String, Object> body) {
+        String actorUid = securityUtils.getCurrentUserUid();
+        User actor = actorUid == null ? null : userRepository.findByFirebaseUid(actorUid).orElse(null);
+        boolean isSelfUpdate = actorUid != null && actorUid.equals(uid);
+        boolean canManagePlacement = actor != null && actor.getRole() != Role.STUDENT;
+
+        if (!isSelfUpdate && !canManagePlacement) {
+            return ResponseEntity.status(403).build();
+        }
+
         User student = userRepository.findByFirebaseUid(uid)
                 .orElseThrow(() -> new RuntimeException("Student not found: " + uid));
 
@@ -49,24 +62,31 @@ public class PlacementProfileController {
         PlacementProfile profile = profileRepo.findByStudentFirebaseUid(uid)
                 .orElse(PlacementProfile.builder().student(student).build());
 
-        if (body.containsKey("resumeUploaded"))
+        if (body.containsKey("resumeUploaded")) {
             profile.setResumeUploaded(Boolean.parseBoolean(body.get("resumeUploaded").toString()));
-        if (body.containsKey("resumeUrl"))
-            profile.setResumeUrl((String) body.get("resumeUrl"));
-        if (body.containsKey("skillsCompleted"))
-            profile.setSkillsCompleted(Integer.parseInt(body.get("skillsCompleted").toString()));
-        if (body.containsKey("totalSkills"))
-            profile.setTotalSkills(Integer.parseInt(body.get("totalSkills").toString()));
-        if (body.containsKey("aptitudeScore"))
-            profile.setAptitudeScore(Double.parseDouble(body.get("aptitudeScore").toString()));
-        if (body.containsKey("mockInterviewScore"))
-            profile.setMockInterviewScore(Double.parseDouble(body.get("mockInterviewScore").toString()));
-        if (body.containsKey("completedSkillsList"))
-            profile.setCompletedSkillsList((String) body.get("completedSkillsList"));
-        if (body.containsKey("preferredRole"))
-            profile.setPreferredRole((String) body.get("preferredRole"));
-        if (body.containsKey("preferredCompanies"))
-            profile.setPreferredCompanies((String) body.get("preferredCompanies"));
+        }
+        if (body.containsKey("resumeUrl")) {
+            String resumeUrl = body.get("resumeUrl") == null ? null : body.get("resumeUrl").toString().trim();
+            profile.setResumeUrl(resumeUrl == null || resumeUrl.isBlank() ? null : resumeUrl);
+            profile.setResumeUploaded(resumeUrl != null && !resumeUrl.isBlank());
+        }
+
+        if (canManagePlacement) {
+            if (body.containsKey("skillsCompleted"))
+                profile.setSkillsCompleted(Integer.parseInt(body.get("skillsCompleted").toString()));
+            if (body.containsKey("totalSkills"))
+                profile.setTotalSkills(Integer.parseInt(body.get("totalSkills").toString()));
+            if (body.containsKey("aptitudeScore"))
+                profile.setAptitudeScore(Double.parseDouble(body.get("aptitudeScore").toString()));
+            if (body.containsKey("mockInterviewScore"))
+                profile.setMockInterviewScore(Double.parseDouble(body.get("mockInterviewScore").toString()));
+            if (body.containsKey("completedSkillsList"))
+                profile.setCompletedSkillsList((String) body.get("completedSkillsList"));
+            if (body.containsKey("preferredRole"))
+                profile.setPreferredRole((String) body.get("preferredRole"));
+            if (body.containsKey("preferredCompanies"))
+                profile.setPreferredCompanies((String) body.get("preferredCompanies"));
+        }
 
         PlacementProfile saved = profileRepo.save(profile);
         return ResponseEntity.ok(buildResponse(saved));

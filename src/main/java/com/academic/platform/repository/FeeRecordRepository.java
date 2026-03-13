@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -18,6 +19,8 @@ public interface FeeRecordRepository extends JpaRepository<FeeRecord, Long> {
     List<FeeRecord> findByPaymentStatus(String paymentStatus);
 
     List<FeeRecord> findByAcademicYear(String academicYear);
+
+    FeeRecord findFirstByStudent_FirebaseUidAndPaymentStatusInOrderByIdDesc(String firebaseUid, Collection<String> statuses);
 
     /**
      * Monthly totals for chart — returns [month(1-12), totalCollected]
