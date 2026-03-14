@@ -26,7 +26,9 @@ public class SecurityConfig {
             "http://localhost:5173",
             "http://localhost:5174",
             "http://127.0.0.1:5173",
-            "http://127.0.0.1:5174"
+            "http://127.0.0.1:5174",
+            "http://10.10.188.128:5173",
+            "http://10.10.188.128:5174"
     );
 
     @Bean
@@ -43,6 +45,7 @@ public class SecurityConfig {
         .requestMatchers("/api/users/register").permitAll()
         .requestMatchers("/api/users/**").permitAll()
         .requestMatchers("/api/seed/**").permitAll()
+        .requestMatchers("/api/admin/settings/public/features").permitAll()
         .requestMatchers("/api/leaves/parent-view/**").permitAll()
         .requestMatchers("/api/leaves/parent-action/**").permitAll()
         .requestMatchers("/error").permitAll()

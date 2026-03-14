@@ -217,4 +217,46 @@ public class EmailService {
 
         sendHtmlEmail(parentEmail, "Action Required: OTP for Leave Approval", html);
     }
+
+    // ─── Faculty Leave Emails ────────────────────────────────────────────────────
+
+    @Async("emailExecutor")
+    public void sendFacultyLeaveApproved(String email, String name, String from, String to, String remarks) {
+        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
+                + "<body style='font-family:sans-serif;background:#f3f4f6;margin:0;padding:0;'>"
+                + "<div style='max-width:480px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);'>"
+                + "<div style='background:#10b981;padding:28px 24px;text-align:center;'>"
+                + "<h1 style='margin:0;color:#fff;font-size:22px;letter-spacing:1px;'>ACADEMIC PORTAL</h1>"
+                + "<p style='margin:6px 0 0;color:#d1fae5;font-size:13px;'>Faculty Leave – Final Decision</p></div>"
+                + "<div style='padding:30px 24px;'>"
+                + "<h2 style='color:#065f46;margin:0 0 12px;'>✅ Leave Approved</h2>"
+                + "<p style='color:#374151;'>Dear <strong>" + name + "</strong>,</p>"
+                + "<p style='color:#374151;'>Your leave request has been <strong style='color:#10b981;'>APPROVED</strong> by the Admin.</p>"
+                + "<div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;'>"
+                + "<p style='margin:4px 0;color:#374151;'><strong>Period:</strong> " + from + " to " + to + "</p>"
+                + (remarks != null && !remarks.isBlank() ? "<p style='margin:4px 0;color:#374151;'><strong>Remarks:</strong> " + remarks + "</p>" : "")
+                + "</div><p style='color:#6b7280;font-size:13px;'>Please make necessary arrangements before your leave period.</p></div>"
+                + "<div style='background:#f9fafb;padding:14px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;'>"
+                + "&copy; 2026 Academic Platform System</div></div></body></html>";
+        sendHtmlEmail(email, "Leave Approved – " + from + " to " + to, html);
+    }
+
+    @Async("emailExecutor")
+    public void sendFacultyLeaveRejected(String email, String name, String from, String to, String remarks) {
+        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
+                + "<body style='font-family:sans-serif;background:#f3f4f6;margin:0;padding:0;'>"
+                + "<div style='max-width:480px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,.08);'>"
+                + "<div style='background:#ef4444;padding:28px 24px;text-align:center;'>"
+                + "<h1 style='margin:0;color:#fff;font-size:22px;'>ACADEMIC PORTAL</h1>"
+                + "<p style='margin:6px 0 0;color:#fecaca;font-size:13px;'>Faculty Leave – Final Decision</p></div>"
+                + "<div style='padding:30px 24px;'>"
+                + "<h2 style='color:#991b1b;margin:0 0 12px;'>❌ Leave Rejected</h2>"
+                + "<p>Dear <strong>" + name + "</strong>,</p>"
+                + "<p>Your leave request (<strong>" + from + " to " + to + "</strong>) has been <strong style='color:#ef4444;'>REJECTED</strong>.</p>"
+                + (remarks != null && !remarks.isBlank() ? "<div style='background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin:14px 0;'><p style='margin:0;color:#374151;'><strong>Reason:</strong> " + remarks + "</p></div>" : "")
+                + "<p style='color:#6b7280;font-size:13px;'>You may re-apply or contact your HOD/Admin for further clarification.</p></div>"
+                + "<div style='background:#f9fafb;padding:14px;text-align:center;font-size:11px;color:#9ca3af;border-top:1px solid #e5e7eb;'>"
+                + "&copy; 2026 Academic Platform System</div></div></body></html>";
+        sendHtmlEmail(email, "Leave Rejected – " + from + " to " + to, html);
+    }
 }
