@@ -115,35 +115,30 @@ public class UserController {
 
             // Convert map to User entity using a lenient mapper copy
             com.fasterxml.jackson.databind.ObjectMapper mapperCopy = objectMapper.copy();
-            mapperCopy.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
-                    false);
+            mapperCopy.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
             User updates = mapperCopy.convertValue(updatesMap, User.class);
 
-            if (updates.getStudentDetails() == null) {
-                updates.setStudentDetails(new com.academic.platform.model.StudentDetails());
+            // Also map the flattened fields that belong to StudentDetails!
+            com.academic.platform.model.StudentDetails details = mapperCopy.convertValue(updatesMap, com.academic.platform.model.StudentDetails.class);
+            
+            if (details == null) {
+                details = new com.academic.platform.model.StudentDetails();
             }
-            com.academic.platform.model.StudentDetails details = updates.getStudentDetails();
-
-            if (updatesMap.containsKey("rollNumber")) {
-                details.setRollNumber(updatesMap.get("rollNumber") != null ? String.valueOf(updatesMap.get("rollNumber")) : null);
-            }
-            if (updatesMap.containsKey("department")) {
-                details.setDepartment(updatesMap.get("department") != null ? String.valueOf(updatesMap.get("department")) : null);
-            }
+            
+            // Clean up potentially dirty numeric parsing for semester
             if (updatesMap.containsKey("semester")) {
                 Object sem = updatesMap.get("semester");
-                if (sem != null) {
+                if (sem == null || String.valueOf(sem).trim().isEmpty()) {
+                    details.setSemester(null);
+                } else {
                     try {
                         details.setSemester(Integer.parseInt(String.valueOf(sem)));
                     } catch (NumberFormatException ignored) {}
-                } else {
-                    details.setSemester(null);
                 }
             }
-            if (updatesMap.containsKey("studentStatus")) {
-                details.setStudentStatus(updatesMap.get("studentStatus") != null ? String.valueOf(updatesMap.get("studentStatus")) : null);
-            }
+            
+            updates.setStudentDetails(details);
 
             return ResponseEntity.ok(userService.updateUser(uid, updates));
         } catch (IllegalArgumentException e) {
@@ -295,37 +290,29 @@ public class UserController {
             requestBody.remove("password");
 
             // Convert map to User entity
-            // Using convertValue handles type conversions including Enums if names match
-            User user = objectMapper.convertValue(requestBody, User.class);
+            com.fasterxml.jackson.databind.ObjectMapper mapperCopy = objectMapper.copy();
+            mapperCopy.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            User user = mapperCopy.convertValue(requestBody, User.class);
 
-            // Explicitly map StudentDetails fields if they are in the top-level map
-            // This ensures robust handling even if @JsonUnwrapped deserialization via
-            // convertValue is tricky
-            if (user.getStudentDetails() == null) {
-                user.setStudentDetails(new com.academic.platform.model.StudentDetails());
+            // Explicitly extract ALL flattened StudentDetails fields!
+            com.academic.platform.model.StudentDetails details = mapperCopy.convertValue(requestBody, com.academic.platform.model.StudentDetails.class);
+            if (details == null) {
+                details = new com.academic.platform.model.StudentDetails();
             }
-            com.academic.platform.model.StudentDetails details = user.getStudentDetails();
 
-            if (requestBody.containsKey("department")) {
-                details.setDepartment((String) requestBody.get("department"));
-            }
-            if (requestBody.containsKey("rollNumber")) {
-                details.setRollNumber((String) requestBody.get("rollNumber"));
-            }
-            if (requestBody.containsKey("section")) {
-                details.setSection((String) requestBody.get("section"));
-            }
+            // Clean up potentially dirty numeric parsing for semester
             if (requestBody.containsKey("semester")) {
                 Object sem = requestBody.get("semester");
-                if (sem instanceof Integer) {
-                    details.setSemester((Integer) sem);
-                } else if (sem instanceof String) {
+                if (sem == null || String.valueOf(sem).trim().isEmpty()) {
+                    details.setSemester(null);
+                } else {
                     try {
-                        details.setSemester(Integer.parseInt(((String) sem).trim()));
-                    } catch (NumberFormatException ignored) {
-                    }
+                        details.setSemester(Integer.parseInt(String.valueOf(sem).trim()));
+                    } catch (NumberFormatException ignored) {}
                 }
             }
+            
+            user.setStudentDetails(details);
 
             // Explicitly handle Role string if needed, although Jackson usually handles
             // String->Enum if matches

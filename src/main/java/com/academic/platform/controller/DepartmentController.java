@@ -81,6 +81,11 @@ public class DepartmentController {
                 return ResponseEntity.ok(departmentService.getStudentAttendance(department));
         }
 
+        @GetMapping("/academic-performance/{department}")
+        public ResponseEntity<?> getAcademicPerformance(@PathVariable String department) {
+                return ResponseEntity.ok(departmentService.getAcademicPerformance(department));
+        }
+
         @GetMapping("/faculty-workload/{department}")
         public ResponseEntity<?> getFacultyWorkload(@PathVariable String department) {
                 return ResponseEntity.ok(departmentService.getFacultyWorkload(department));
