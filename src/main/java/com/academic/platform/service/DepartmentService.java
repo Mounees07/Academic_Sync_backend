@@ -5,12 +5,19 @@ import com.academic.platform.dto.DepartmentDashboardDTO;
 import com.academic.platform.model.Role;
 import com.academic.platform.model.User;
 import com.academic.platform.model.LeaveRequest;
+import com.academic.platform.model.CourseAttendance;
+import com.academic.platform.model.Attendance;
+import com.academic.platform.model.Enrollment;
 import com.academic.platform.repository.CourseRepository;
 import com.academic.platform.repository.LeaveRequestRepository;
 import com.academic.platform.repository.UserRepository;
+import com.academic.platform.repository.AttendanceRepository;
+import com.academic.platform.repository.EnrollmentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Function;
@@ -31,17 +38,20 @@ public class DepartmentService {
         @Autowired
         private com.academic.platform.repository.FacultyWorkloadRepository facultyWorkloadRepository;
 
-        @Autowired
-        private com.academic.platform.repository.CourseAttendanceRepository courseAttendanceRepository;
+        		@Autowired
+		private com.academic.platform.repository.CourseAttendanceRepository courseAttendanceRepository;
 
-        @Autowired
-        private com.academic.platform.repository.CourseAttendanceSessionRepository sessionRepository;
+		@Autowired
+		private com.academic.platform.repository.CourseAttendanceSessionRepository sessionRepository;
 
-        @Autowired
-        private com.academic.platform.repository.EnrollmentRepository enrollmentRepository;
+		@Autowired
+		private EnrollmentRepository enrollmentRepository;
 
-        @Autowired
-        private com.academic.platform.repository.ExamVenueRepository examVenueRepository;
+		@Autowired
+		private AttendanceRepository attendanceRepository;
+
+		@Autowired
+		private com.academic.platform.repository.ExamVenueRepository examVenueRepository;
 
         public DepartmentDashboardDTO getDashboardStats(String department) {
                 DepartmentDashboardDTO dto = new DepartmentDashboardDTO();
@@ -66,7 +76,9 @@ public class DepartmentService {
                                                 Collections.singletonList(Role.STUDENT)).size());
 
                 // 3. Course Count — use IgnoreCase to avoid case mismatch
-                dto.setTotalCourses(courseRepository.findByDepartmentIgnoreCase(department).size());
+                long courseCount = courseRepository.findAll().stream()
+                        .filter(c -> isDepartmentMatch(c.getDepartment(), department)).count();
+                dto.setTotalCourses((int) courseCount);
 
                 // 4. Recent Leaves
                 List<LeaveRequest> allLeaves = leaveRepository
@@ -78,7 +90,28 @@ public class DepartmentService {
                                                 || "PENDING".equals(l.getParentStatus()))
                                 .count());
 
+                List<com.academic.platform.model.Course> coreCourses = courseRepository.findAll().stream()
+                        .filter(c -> isDepartmentMatch(c.getDepartment(), department))
+                        .limit(10)
+                        .toList();
+                dto.setCoreCourses(coreCourses);
+
                 return dto;
+        }
+
+        private boolean isDepartmentMatch(String courseDept, String targetDept) {
+                if (courseDept == null || targetDept == null) return false;
+                String c = courseDept.trim().toLowerCase();
+                String t = targetDept.trim().toLowerCase();
+                if (c.equals(t)) return true;
+                if (t.contains("computer science") && (c.equals("cse") || c.contains("computer"))) return true;
+                if (t.contains("electronics") && (c.equals("ece") || c.contains("electronic"))) return true;
+                if (t.contains("mechanical") && (c.equals("mech") || c.contains("mechanic"))) return true;
+                if (t.contains("civil") && c.contains("civil")) return true;
+                if (t.contains("artificial") && (c.equals("ai&ds") || c.contains("ai") || c.contains("artificial"))) return true;
+                if (t.contains("information") && (c.equals("it") || c.contains("information"))) return true;
+                if (c.contains(t) || t.contains(c)) return true;
+                return false;
         }
 
         public DepartmentAnalyticsDTO getAnalytics(String department) {
@@ -89,7 +122,10 @@ public class DepartmentService {
 
                 // 1. KPIs
                 dto.setActiveStudents(students.size());
-                dto.setActiveCourses(courseRepository.findByDepartment(department).size());
+                
+                long activeCoursesCount = courseRepository.findAll().stream()
+                        .filter(c -> isDepartmentMatch(c.getDepartment(), department)).count();
+                dto.setActiveCourses((int) activeCoursesCount);
 
                 double totalPctSum = 0;
                 int countWithData = 0;
@@ -332,6 +368,14 @@ public class DepartmentService {
                 facultyWorkloadRepository.save(fw);
         }
 
+
+        /** Helper: recognizes both "P" (OTP mark) and "PRESENT" (bulk/manual) as present */
+        private boolean isCoursePresent(String status) {
+                if (status == null) return false;
+                String s = status.trim().toUpperCase();
+                return s.equals("P") || s.equals("PRESENT");
+        }
+
         public Map<String, Object> getStudentAttendance(String department) {
                 Map<String, Object> response = new HashMap<>();
 
@@ -348,14 +392,12 @@ public class DepartmentService {
                 double totalPctSum = 0;
                 int countWithData = 0;
 
-                // For trend data: group by week of the year
                 Map<String, long[]> weeklyStats = new LinkedHashMap<>(); // week -> [present, total]
-
                 List<Map<String, Object>> attendanceRecords = new ArrayList<>();
 
                 for (User student : students) {
                         String uid = student.getFirebaseUid();
-                        List<com.academic.platform.model.CourseAttendance> atts = new ArrayList<>();
+                        List<CourseAttendance> atts = new ArrayList<>();
                         if (uid != null && !uid.trim().isEmpty()) {
                                 atts = courseAttendanceRepository.findByStudentFirebaseUidOrderByMarkedAtDesc(uid);
                         }
@@ -366,14 +408,26 @@ public class DepartmentService {
                         double pct;
                         boolean usedFallback = false;
 
-                        if (totalClasses > 0) {
-                                // ── Use real CourseAttendance records ──────────────────────
-                                for (com.academic.platform.model.CourseAttendance att : atts) {
-                                        boolean isPresent = "PRESENT".equalsIgnoreCase(att.getStatus());
-                                        if (isPresent) classesAttended++;
-                                        else if ("ABSENT".equalsIgnoreCase(att.getStatus())) unexcused++;
+                        // Per-course breakdown map: courseName -> [attended, total]
+                        Map<String, int[]> courseMap = new LinkedHashMap<>();
 
-                                        // Group by week for trends
+                        if (totalClasses > 0) {
+                                for (CourseAttendance att : atts) {
+                                        boolean isPresent = isCoursePresent(att.getStatus());
+                                        if (isPresent) classesAttended++;
+                                        else unexcused++;
+
+                                        // Course breakdown
+                                        String courseName = "Unknown";
+                                        if (att.getSession() != null && att.getSession().getSection() != null
+                                                        && att.getSession().getSection().getCourse() != null) {
+                                                courseName = att.getSession().getSection().getCourse().getName();
+                                        }
+                                        courseMap.computeIfAbsent(courseName, k -> new int[]{0, 0});
+                                        courseMap.get(courseName)[1]++;
+                                        if (isPresent) courseMap.get(courseName)[0]++;
+
+                                        // Weekly trend
                                         if (att.getMarkedAt() != null) {
                                                 java.time.temporal.WeekFields weekFields = java.time.temporal.WeekFields.of(Locale.getDefault());
                                                 int weekNum = att.getMarkedAt().get(weekFields.weekOfWeekBasedYear());
@@ -388,30 +442,67 @@ public class DepartmentService {
                         } else if (student.getStudentDetails() != null
                                         && student.getStudentDetails().getAttendance() != null
                                         && student.getStudentDetails().getAttendance() > 0) {
-                                // ── Fallback: use stored attendance % from StudentDetails ──
                                 pct = student.getStudentDetails().getAttendance();
-                                // Estimate class counts from a standard semester of 90 classes
                                 totalClasses = 90;
                                 classesAttended = (int) Math.round(pct * totalClasses / 100.0);
                                 unexcused = totalClasses - classesAttended;
                                 usedFallback = true;
                         } else {
-                                // No data at all — skip from averages but still list in table
                                 pct = 0.0;
                         }
 
-                        // ── Aggregate stats (only for students with any data) ─────────
+                        // Aggregate stats
                         if (totalClasses > 0) {
                                 totalPctSum += pct;
                                 countWithData++;
-                                if (pct >= 100.0)  perfectAttendance++;
-                                else if (pct == 100.0) perfectAttendance++;
-                                if (pct < 75.0)    belowThreshold++;
-                                if (!usedFallback)  unexcusedAbsences += unexcused;
+                                if (pct >= 100.0) perfectAttendance++;
+                                if (pct < 75.0)   belowThreshold++;
+                                if (!usedFallback) unexcusedAbsences += unexcused;
                                 else if (pct < 75.0) unexcusedAbsences += (totalClasses - classesAttended);
                         }
 
-                        // ── Build per-student record ───────────────────────────────────
+                        // Biometric (daily check-in) attendance
+                        List<Attendance> bioAtts = new ArrayList<>();
+                        if (uid != null && !uid.trim().isEmpty()) {
+                                bioAtts = attendanceRepository.findByStudentFirebaseUidOrderByDateDesc(uid);
+                        }
+                        long bioPresentDays = bioAtts.stream()
+                                        .filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus()) || "LATE".equalsIgnoreCase(a.getStatus()))
+                                        .count();
+                        int bioTotalDays = bioAtts.size();
+                        int bioWorkingDays = 0;
+                        if (!bioAtts.isEmpty()) {
+                                LocalDate earliest = bioAtts.stream().map(Attendance::getDate).min(LocalDate::compareTo).orElse(LocalDate.now());
+                                LocalDate today = LocalDate.now();
+                                long days = java.time.temporal.ChronoUnit.DAYS.between(earliest, today) + 1;
+                                for (int i = 0; i < days; i++) {
+                                        LocalDate d = earliest.plusDays(i);
+                                        if (d.getDayOfWeek() != DayOfWeek.SATURDAY && d.getDayOfWeek() != DayOfWeek.SUNDAY) {
+                                                bioWorkingDays++;
+                                        }
+                                }
+                                if (bioWorkingDays == 0) bioWorkingDays = 1;
+                        }
+                        double bioPct = bioWorkingDays > 0 ? Math.min(100.0, (bioPresentDays * 100.0) / bioWorkingDays) : 0.0;
+                        String lastCheckin = bioAtts.isEmpty() ? null : bioAtts.get(0).getDate().toString();
+                        String lastCheckinStatus = bioAtts.isEmpty() ? null : bioAtts.get(0).getStatus();
+
+                        // Build course-wise breakdown list
+                        List<Map<String, Object>> courseBreakdown = new ArrayList<>();
+                        for (Map.Entry<String, int[]> e : courseMap.entrySet()) {
+                                int ca = e.getValue()[0];
+                                int ct = e.getValue()[1];
+                                double cp = ct > 0 ? Math.round((ca * 100.0 / ct) * 10) / 10.0 : 0.0;
+                                Map<String, Object> cb = new HashMap<>();
+                                cb.put("course", e.getKey());
+                                cb.put("attended", ca);
+                                cb.put("total", ct);
+                                cb.put("percent", cp);
+                                cb.put("statusClass", cp >= 85 ? "status-ready" : (cp >= 75 ? "status-processing" : (cp > 0 ? "status-maintenance" : "status-inactive")));
+                                courseBreakdown.add(cb);
+                        }
+
+                        // Build per-student record
                         Map<String, Object> rec = new HashMap<>();
                         rec.put("name", student.getFullName());
                         rec.put("email", student.getEmail());
@@ -423,10 +514,17 @@ public class DepartmentService {
                                 semInt = student.getStudentDetails().getSemester();
                         }
                         rec.put("program", course != null ? course.toUpperCase() + " Year "
-                                        + Math.round(Math.ceil(semInt / 2.0)) : "N/A");
+                                        + (int) Math.round(Math.ceil(semInt / 2.0)) : "N/A");
                         rec.put("classesAttended", classesAttended);
                         rec.put("totalClasses", totalClasses);
                         rec.put("attendancePercent", Math.round(pct * 10) / 10.0);
+                        rec.put("bioPresentDays", (int) bioPresentDays);
+                        rec.put("bioTotalDays", bioTotalDays);
+                        rec.put("bioWorkingDays", bioWorkingDays);
+                        rec.put("bioPercent", Math.round(bioPct * 10) / 10.0);
+                        rec.put("lastCheckin", lastCheckin);
+                        rec.put("lastCheckinStatus", lastCheckinStatus);
+                        rec.put("courseBreakdown", courseBreakdown);
 
                         String status;
                         String statusClass;
@@ -445,21 +543,18 @@ public class DepartmentService {
                         attendanceRecords.add(rec);
                 }
 
-                // ── Sort and cap records ─────────────────────────────────────────
+                // Sort ascending by attendance % (worst first) and cap at 100
                 attendanceRecords.sort((a, b) -> Double.compare(
                         (Double) a.get("attendancePercent"), (Double) b.get("attendancePercent")));
                 if (attendanceRecords.size() > 100) {
                         attendanceRecords = attendanceRecords.subList(0, 100);
                 }
 
-                // ── Weekly trend from StudentDetails.attendance if no CourseAttendance ──
-                // Populate a synthetic week-based trend using stored attendance values
+                // Synthetic weekly trend if no real course attendance data
                 if (weeklyStats.isEmpty() && countWithData > 0) {
-                        // Build a 4-week synthetic trend using the computed avg
                         double avg = totalPctSum / countWithData;
-                        // Slight variation per week to show a trend line rather than a flat line
                         double[] syntheticRates = { Math.max(0, avg - 3), Math.max(0, avg - 1), Math.min(100, avg + 1), avg };
-                        java.time.LocalDate today = java.time.LocalDate.now();
+                        LocalDate today = LocalDate.now();
                         java.time.temporal.WeekFields wf = java.time.temporal.WeekFields.of(Locale.getDefault());
                         int currentWeek = today.get(wf.weekOfWeekBasedYear());
                         for (int i = 0; i < 4; i++) {

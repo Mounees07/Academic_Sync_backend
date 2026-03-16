@@ -9,8 +9,17 @@ public class DepartmentDashboardDTO {
     private long totalCourses;
     private long pendingLeaves; // "Budget Alerts" replacement? Or "Pending Requests"
     private List<LeaveRequest> recentActivities;
+    private List<com.academic.platform.model.Course> coreCourses;
 
     // Getters and Setters
+    public List<com.academic.platform.model.Course> getCoreCourses() {
+        return coreCourses;
+    }
+
+    public void setCoreCourses(List<com.academic.platform.model.Course> coreCourses) {
+        this.coreCourses = coreCourses;
+    }
+
     public long getTotalFaculty() {
         return totalFaculty;
     }

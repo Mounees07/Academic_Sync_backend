@@ -127,7 +127,7 @@ public class CourseAttendanceService {
                 .session(session)
                 .student(student)
                 .markedAt(LocalDateTime.now())
-                .status("P")
+                .status("PRESENT")
                 .build();
 
         return attendanceRepo.save(attendance);

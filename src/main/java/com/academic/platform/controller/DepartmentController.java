@@ -54,6 +54,7 @@ public class DepartmentController {
                 result.put("totalCourses", dashboard.getTotalCourses());
                 result.put("pendingLeaves", dashboard.getPendingLeaves());
                 result.put("recentActivities", dashboard.getRecentActivities());
+                result.put("coreCourses", dashboard.getCoreCourses());
                 return ResponseEntity.ok(result);
         }
 
