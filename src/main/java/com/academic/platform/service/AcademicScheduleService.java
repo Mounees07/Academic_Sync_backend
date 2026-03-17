@@ -226,7 +226,8 @@ public class AcademicScheduleService {
                     if (data.length > 7)
                         schedule.setDescription(data[7]);
 
-                    schedule.setDepartment(uploader.getStudentDetails().getDepartment() != null
+                    schedule.setDepartment(
+                            (uploader.getStudentDetails() != null && uploader.getStudentDetails().getDepartment() != null)
                             ? uploader.getStudentDetails().getDepartment()
                             : "General");
                     schedules.add(schedule);
@@ -316,9 +317,13 @@ public class AcademicScheduleService {
 
     public List<AcademicSchedule> saveSchedules(List<AcademicSchedule> schedules, String hodUid) {
         User hod = userRepository.findByFirebaseUid(hodUid)
-                .orElseThrow(() -> new RuntimeException("HOD not found"));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        schedules.forEach(s -> s.setDepartment(hod.getStudentDetails().getDepartment()));
+        schedules.forEach(s -> s.setDepartment(
+                (hod.getStudentDetails() != null && hod.getStudentDetails().getDepartment() != null)
+                        ? hod.getStudentDetails().getDepartment()
+                        : "General"
+        ));
         return scheduleRepository.saveAll(schedules);
     }
 

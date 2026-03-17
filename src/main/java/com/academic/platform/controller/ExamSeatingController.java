@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/exam-seating")
@@ -17,6 +18,7 @@ public class ExamSeatingController {
     @Autowired
     private ExamSeatingService examSeatingService;
 
+    // ── CREATE via CSV upload ─────────────────────────────────────────────────
     @PostMapping("/allocate")
     public ResponseEntity<?> allocateSeating(
             @RequestParam("examId") Long examId,
@@ -29,10 +31,7 @@ public class ExamSeatingController {
         }
     }
 
-    /**
-     * Smart auto-allocation: alternates students by dept + section.
-     * No CSV needed — the system picks students from the database automatically.
-     */
+    // ── CREATE via auto-allocation ────────────────────────────────────────────
     @PostMapping("/auto-allocate")
     public ResponseEntity<?> autoAllocate(@RequestParam("examId") Long examId) {
         try {
@@ -43,19 +42,7 @@ public class ExamSeatingController {
         }
     }
 
-    // Simple wrapper for error message
-    public static class ErrorResponse {
-        private String message;
-
-        public ErrorResponse(String message) {
-            this.message = message;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
+    // ── READ ──────────────────────────────────────────────────────────────────
     @GetMapping("/exam/{examId}")
     public ResponseEntity<List<ExamSeating>> getSeatingByExam(@PathVariable Long examId) {
         return ResponseEntity.ok(examSeatingService.getSeatingByExam(examId));
@@ -75,5 +62,50 @@ public class ExamSeatingController {
     public ResponseEntity<List<ExamSeating>> getAllAllocations() {
         return ResponseEntity.ok(examSeatingService.getAllAllocations());
     }
-}
 
+    // ── UPDATE single allocation (seat number and/or venue) ───────────────────
+    @PutMapping("/{id}")
+    public ResponseEntity<?> updateSeating(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        try {
+            String seatNumber = body.containsKey("seatNumber") ? String.valueOf(body.get("seatNumber")) : null;
+            Long venueId = body.containsKey("venueId") && body.get("venueId") != null
+                    ? Long.parseLong(String.valueOf(body.get("venueId")))
+                    : null;
+            ExamSeating updated = examSeatingService.updateSeating(id, seatNumber, venueId);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Collections.singletonMap("message", e.getMessage()));
+        }
+    }
+
+    // ── DELETE single allocation ───────────────────────────────────────────────
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteSingleSeating(@PathVariable Long id) {
+        try {
+            examSeatingService.deleteSingleSeating(id);
+            return ResponseEntity.ok(Collections.singletonMap("message", "Allocation deleted successfully."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Collections.singletonMap("message", e.getMessage()));
+        }
+    }
+
+    // ── DELETE all allocations for a specific exam ─────────────────────────────
+    @DeleteMapping("/exam/{examId}")
+    public ResponseEntity<?> deleteAllByExam(@PathVariable Long examId) {
+        try {
+            examSeatingService.deleteAllByExam(examId);
+            return ResponseEntity.ok(Collections.singletonMap("message", "All allocations cleared for exam " + examId));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Collections.singletonMap("message", e.getMessage()));
+        }
+    }
+
+    // Error wrapper
+    public static class ErrorResponse {
+        private final String message;
+        public ErrorResponse(String message) { this.message = message; }
+        public String getMessage() { return message; }
+    }
+}

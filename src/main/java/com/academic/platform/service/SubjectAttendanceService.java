@@ -30,6 +30,16 @@ public class SubjectAttendanceService {
     @Autowired
     private com.academic.platform.repository.CourseAttendanceRepository courseAttendanceRepo;
 
+    /**
+     * Recognizes both "P" (manual/OTP shorthand) and "PRESENT" (OTP full) as present.
+     * Also treats "L"/"LATE" as present for attendance percentage purposes.
+     */
+    private boolean isPresent(String status) {
+        if (status == null) return false;
+        String s = status.trim().toUpperCase();
+        return s.equals("P") || s.equals("PRESENT") || s.equals("L") || s.equals("LATE");
+    }
+
     public List<Map<String, Object>> getStudentSubjectAttendance(String studentUid) {
         List<com.academic.platform.model.CourseAttendance> atts = courseAttendanceRepo.findByStudentFirebaseUidOrderByMarkedAtDesc(studentUid);
         // Group by course
@@ -42,7 +52,8 @@ public class SubjectAttendanceService {
             List<com.academic.platform.model.CourseAttendance> courseAtts = entry.getValue();
             
             int totalClasses = courseAtts.size();
-            int attended = (int) courseAtts.stream().filter(c -> "PRESENT".equalsIgnoreCase(c.getStatus())).count();
+            // Count both "P"/"PRESENT"/"L"/"LATE" as attended
+            int attended = (int) courseAtts.stream().filter(c -> isPresent(c.getStatus())).count();
             double pct = totalClasses > 0 ? (attended * 100.0 / totalClasses) : 0;
             
             Map<String, Object> m = new HashMap<>();
@@ -112,7 +123,7 @@ public class SubjectAttendanceService {
 
         for (Map.Entry<String, List<com.academic.platform.model.CourseAttendance>> entry : bySubject.entrySet()) {
             List<com.academic.platform.model.CourseAttendance> subRecords = entry.getValue();
-            int totalAttended = (int) subRecords.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
+            int totalAttended = (int) subRecords.stream().filter(a -> isPresent(a.getStatus())).count();
             int totalClasses = subRecords.size();
 
             double currentPct = totalClasses > 0 ? (totalAttended * 100.0 / totalClasses) : 0;
@@ -157,7 +168,7 @@ public class SubjectAttendanceService {
         for (int month : sortedMonths) {
             List<com.academic.platform.model.CourseAttendance> mRecords = byMonth.get(month);
             int total = mRecords.size();
-            int attended = (int) mRecords.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
+            int attended = (int) mRecords.stream().filter(a -> isPresent(a.getStatus())).count();
             double pct = total > 0 ? Math.round((attended * 100.0 / total) * 100.0) / 100.0 : 0;
 
             Map<String, Object> m = new HashMap<>();

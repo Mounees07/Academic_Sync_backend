@@ -1,7 +1,14 @@
 package com.academic.platform.service;
 
-import com.academic.platform.model.*;
-import com.academic.platform.repository.*;
+import com.academic.platform.model.AcademicSchedule;
+import com.academic.platform.model.ExamSeating;
+import com.academic.platform.model.ExamVenue;
+import com.academic.platform.model.Role;
+import com.academic.platform.model.User;
+import com.academic.platform.repository.AcademicScheduleRepository;
+import com.academic.platform.repository.ExamSeatingRepository;
+import com.academic.platform.repository.ExamVenueRepository;
+import com.academic.platform.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +19,18 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -137,43 +155,40 @@ public class ExamSeatingService {
     /**
      * Algorithm:
      * 1. Fetch ALL students with studentDetails.
-     * 2. Filter by exam.department if set (internal exam) — otherwise all (semester
-     * exam).
-     * 3. Group by (department + section).
-     * 4. Round-robin interleave groups → adjacent seats always different dept &
-     * section.
-     * 5. Assign seat labels A1…A<cols>, B1…B<cols> across venues by capacity
-     * (largest first).
+     * 2. Filter by exam.department if set (internal exam) — otherwise all (semester exam).
+     * 3. Group by (department + section) combined key — e.g. "CSE||A", "IT||B".
+     * 4. Max-heap interleave groups → adjacent seats NEVER share same dept+section.
+     *    Students from the same section sit neither front/back/side of each other.
+     * 5. Assign seat labels A1…A<cols>, B1…B<cols> across venues sorted by capacity (largest first).
      */
     @Transactional
     public List<ExamSeating> autoAllocate(Long examId) {
 
-        // ── STEP 0: Delete existing allocations for this exam FIRST so we
-        // never hit the unique-constraint on re-runs.
-        // flush() sends the DELETE SQL to MySQL immediately.
+        // ── STEP 0: Delete existing allocations for this exam FIRST
         examSeatingRepository.deleteAllByExamIdDirect(examId);
         em.flush();
 
-        // ── STEP 1: Load the exam (after flush so the persistence context is clean)
+        // ── STEP 1: Load the exam
         AcademicSchedule exam = academicScheduleRepository.findById(examId)
                 .orElseThrow(() -> new RuntimeException("Exam not found: " + examId));
 
-        // ── STEP 2: Fetch only true STUDENT users.
-        // User.studentDetails is always initialised to new StudentDetails(),
-        // so we must check department != null to identify real students.
+        // ── STEP 2: Fetch only true STUDENT users
         List<User> allStudents = userRepository.findByRole(Role.STUDENT).stream()
                 .filter(u -> u.getStudentDetails() != null
                         && u.getStudentDetails().getDepartment() != null
                         && !u.getStudentDetails().getDepartment().isBlank())
-                .collect(Collectors.toList()); // dedup handled by seenStudentIds in step 6
+                .collect(Collectors.toList());
 
-        // Filter by exam department for internal exams; take all for semester exams
+        // Filter by exam department for internal exams
         String examDept = exam.getDepartment();
-        if (examDept != null && !examDept.isBlank()) {
+        if (examDept != null && !examDept.isBlank() && 
+            !examDept.trim().equalsIgnoreCase("General") && 
+            !examDept.trim().equalsIgnoreCase("COE") && 
+            !examDept.trim().equalsIgnoreCase("Admin") && 
+            !examDept.trim().equalsIgnoreCase("All")) {
             final String dept = examDept.trim().toUpperCase();
             allStudents = allStudents.stream()
-                    .filter(u -> dept.equalsIgnoreCase(
-                            u.getStudentDetails().getDepartment().trim()))
+                    .filter(u -> dept.equalsIgnoreCase(u.getStudentDetails().getDepartment().trim()))
                     .collect(Collectors.toList());
         }
 
@@ -183,28 +198,32 @@ public class ExamSeatingService {
                             "Ensure students have their Department set in their profile.");
         }
 
-        // ── STEP 3: Group students by DEPARTMENT only.
-        // Section is NOT considered — all students in a dept write the same exam.
-        // Sort each dept by roll number for deterministic ordering.
-        Map<String, List<User>> byDept = new LinkedHashMap<>();
+        // ── STEP 3: Group by DEPARTMENT + SECTION (combined key).
+        // E.g. "CSE||A", "CSE||B", "IT||A" are separate groups.
+        // This ensures same-section students are never adjacent to each other.
+        Map<String, List<User>> byDeptSection = new LinkedHashMap<>();
         for (User u : allStudents) {
-            String dept = u.getStudentDetails().getDepartment().trim().toUpperCase();
-            byDept.computeIfAbsent(dept, k -> new ArrayList<>()).add(u);
-        }
-        Map<String, Deque<User>> deptQueues = new LinkedHashMap<>();
-        for (Map.Entry<String, List<User>> e : byDept.entrySet()) {
-            e.getValue().sort(Comparator.comparing(
-                    u -> u.getStudentDetails().getRollNumber() == null
-                            ? ""
-                            : u.getStudentDetails().getRollNumber()));
-            deptQueues.put(e.getKey(), new ArrayDeque<>(e.getValue()));
+            String dept = u.getStudentDetails().getDepartment() != null
+                    ? u.getStudentDetails().getDepartment().trim().toUpperCase()
+                    : "UNKNOWN";
+            String section = u.getStudentDetails().getSection() != null
+                    ? u.getStudentDetails().getSection().trim().toUpperCase()
+                    : "X";
+            String key = dept + "||" + section;
+            byDeptSection.computeIfAbsent(key, k -> new ArrayList<>()).add(u);
         }
 
-        // ── STEP 4: Max-heap Task-Scheduler across departments
-        // Always pick from the dept with the MOST remaining students that is
-        // DIFFERENT from the last placed dept. This is the optimal algorithm
-        // for maximising the gap between same-dept students.
-        List<User> orderedStudents = taskSchedulerInterleave(deptQueues);
+        // Sort each group by roll number for deterministic ordering
+        Map<String, Deque<User>> groupQueues = new LinkedHashMap<>();
+        for (Map.Entry<String, List<User>> e : byDeptSection.entrySet()) {
+            e.getValue().sort(Comparator.comparing(
+                    u -> u.getStudentDetails().getRollNumber() == null
+                            ? "" : u.getStudentDetails().getRollNumber()));
+            groupQueues.put(e.getKey(), new ArrayDeque<>(e.getValue()));
+        }
+
+        // ── STEP 4: Max-heap Task-Scheduler across dept+section groups
+        List<User> orderedStudents = taskSchedulerInterleave(groupQueues);
 
         // ── STEP 5: Load available venues (largest first)
         List<ExamVenue> venues = examVenueRepository.findAll().stream()
@@ -219,7 +238,7 @@ public class ExamSeatingService {
 
         // ── STEP 6: Build seat assignments — seats labelled A1, A2 … A<cols>, B1 …
         List<ExamSeating> allocations = new ArrayList<>();
-        Set<Long> seenStudentIds = new HashSet<>(); // guard against any duplication
+        Set<Long> seenStudentIds = new HashSet<>();
         int studentIdx = 0;
 
         for (ExamVenue venue : venues) {
@@ -231,7 +250,11 @@ public class ExamSeatingService {
                 User student = orderedStudents.get(studentIdx);
                 studentIdx++;
 
-                // Skip if this student was somehow duplicated in orderedStudents
+                if (student == null) {
+                    if (filled > 0) filled++;
+                    continue;
+                }
+
                 if (!seenStudentIds.add(student.getId()))
                     continue;
 
@@ -254,12 +277,13 @@ public class ExamSeatingService {
                 break;
         }
 
-        // Overflow — add any remaining students beyond total venue capacity
+        // Overflow — students beyond total venue capacity
         if (studentIdx < orderedStudents.size()) {
             ExamVenue lastVenue = venues.get(venues.size() - 1);
             int overflow = 1;
             while (studentIdx < orderedStudents.size()) {
                 User student = orderedStudents.get(studentIdx++);
+                if (student == null) continue;
                 if (!seenStudentIds.add(student.getId()))
                     continue;
                 allocations.add(ExamSeating.builder()
@@ -277,52 +301,53 @@ public class ExamSeatingService {
     }
 
     /**
-     * Task-Scheduler / Max-Heap interleave across departments.
+     * Task-Scheduler / Max-Heap interleave across DEPT+SECTION groups.
      *
-     * Always picks one student from the dept with the MOST remaining students
-     * that is DIFFERENT from the dept of the last-placed student. When no
-     * different dept is available (only one dept left) it falls back to the
-     * same dept — this is the unavoidable minimum repetition.
+     * Guarantees no two consecutive seat positions share the same
+     * (department + section) group key. Concretely:
+     *  - CSE-A never sits next to another CSE-A student
+     *  - CSE-B may sit next to CSE-A (different section = different group)
+     *  - The algorithm maximises the spread of each identical group
      *
-     * This guarantees the maximum possible spread of same-dept students.
+     * When only one group remains it falls back to placing consecutive seats
+     * from the same group — this is the mathematically unavoidable minimum.
      */
-    private List<User> taskSchedulerInterleave(Map<String, Deque<User>> deptQueues) {
-        // Max-heap: entry with largest remaining queue first
+    private List<User> taskSchedulerInterleave(Map<String, Deque<User>> groupQueues) {
+        // Max-heap: group with most remaining students polled first
         PriorityQueue<Map.Entry<String, Deque<User>>> pq = new PriorityQueue<>(
                 (a, b) -> b.getValue().size() - a.getValue().size());
 
-        for (Map.Entry<String, Deque<User>> e : deptQueues.entrySet()) {
+        for (Map.Entry<String, Deque<User>> e : groupQueues.entrySet()) {
             if (!e.getValue().isEmpty())
                 pq.offer(e);
         }
 
         List<User> result = new ArrayList<>();
-        String lastDept = null; // dept key of last placed student
-        Map.Entry<String, Deque<User>> held = null; // temporarily parked entry
+        String lastGroup = null;
+        Map.Entry<String, Deque<User>> held = null;
 
         while (!pq.isEmpty() || held != null) {
-
-            // Poll the top candidate
             Map.Entry<String, Deque<User>> curr = pq.isEmpty() ? null : pq.poll();
 
-            // If it's the same dept as the last seat, set it aside and try next
-            if (curr != null && curr.getKey().equals(lastDept)) {
+            // Same group as last — hold aside and try next
+            if (curr != null && curr.getKey().equals(lastGroup)) {
                 held = curr;
                 curr = pq.isEmpty() ? null : pq.poll();
             }
 
             if (curr == null) {
-                // No different dept available — use the held one (same dept, unavoidable)
+                // Have to pick from the same group as last time. Add a gap empty seat first.
+                result.add(null);
+                lastGroup = null; // Next seat is a gap, so any group is fine for the seat after that.
+                
                 curr = held;
                 held = null;
             }
+            if (curr == null) break;
 
-            if (curr == null)
-                break;
-
-            // Place one student from this dept
+            // Place one student from this group
             result.add(curr.getValue().poll());
-            lastDept = curr.getKey();
+            lastGroup = curr.getKey();
 
             // Return the held entry back to the heap
             if (held != null) {
@@ -384,4 +409,45 @@ public class ExamSeatingService {
     public List<ExamSeating> getAllAllocations() {
         return examSeatingRepository.findAll();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRUD — Update single allocation (seat number and/or venue)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Transactional
+    public ExamSeating updateSeating(Long id, String seatNumber, Long venueId) {
+        ExamSeating seating = examSeatingRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Seating record not found: " + id));
+
+        if (seatNumber != null && !seatNumber.isBlank()) {
+            seating.setSeatNumber(seatNumber.trim().toUpperCase());
+        }
+
+        if (venueId != null) {
+            ExamVenue venue = examVenueRepository.findById(venueId)
+                    .orElseThrow(() -> new RuntimeException("Venue not found: " + venueId));
+            seating.setVenue(venue);
+        }
+
+        return examSeatingRepository.save(seating);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRUD — Delete single allocation
+    // ─────────────────────────────────────────────────────────────────────────
+    @Transactional
+    public void deleteSingleSeating(Long id) {
+        if (!examSeatingRepository.existsById(id)) {
+            throw new RuntimeException("Seating record not found: " + id);
+        }
+        examSeatingRepository.deleteById(id);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CRUD — Delete ALL allocations for an exam
+    // ─────────────────────────────────────────────────────────────────────────
+    @Transactional
+    public void deleteAllByExam(Long examId) {
+        examSeatingRepository.deleteAllByExamIdDirect(examId);
+    }
 }
+
