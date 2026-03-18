@@ -51,9 +51,6 @@ public class ExamSeatingService {
     @PersistenceContext
     private EntityManager em;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CSV-based manual allocation (existing)
-    // ─────────────────────────────────────────────────────────────────────────
     @Transactional
     public List<ExamSeating> processSeatingUpload(Long examId, MultipartFile file) throws Exception {
         AcademicSchedule exam = academicScheduleRepository.findById(examId)

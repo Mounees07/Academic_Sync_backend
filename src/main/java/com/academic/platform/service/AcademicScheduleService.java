@@ -25,6 +25,9 @@ public class AcademicScheduleService {
     private AcademicScheduleRepository scheduleRepository;
 
     @Autowired
+    private NotificationService notificationService;
+
+    @Autowired
     private UserRepository userRepository;
 
     public List<AcademicSchedule> getAllUpcomingSchedules() {
@@ -248,7 +251,27 @@ public class AcademicScheduleService {
             }
 
             System.out.println("Validation successful. Saving " + schedules.size() + " schedules.");
-            return scheduleRepository.saveAll(schedules);
+            List<AcademicSchedule> saved = scheduleRepository.saveAll(schedules);
+
+            try {
+                String dept = uploader.getStudentDetails() != null ? uploader.getStudentDetails().getDepartment() : null;
+                if (dept != null) {
+                    List<User> students = userRepository.findByStudentDetails_Department(dept);
+                    for (User s : students) {
+                        try {
+                            notificationService.createNotification(
+                                    s.getFirebaseUid(),
+                                    "SCHEDULE_PUBLISHED",
+                                    "Timetable Published",
+                                    "A new academic schedule has been published for your department.",
+                                    "/schedule"
+                            );
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            return saved;
 
         } catch (Exception e) {
             e.printStackTrace();

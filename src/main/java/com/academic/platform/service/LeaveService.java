@@ -30,6 +30,12 @@ public class LeaveService {
         User student = userRepository.findByFirebaseUid(studentUid)
                 .orElseThrow(() -> new RuntimeException("Student not found"));
 
+        if (request.getParentEmail() == null || request.getParentEmail().trim().isEmpty()) {
+            if (student.getStudentDetails() != null && student.getStudentDetails().getParentEmailId() != null) {
+                request.setParentEmail(student.getStudentDetails().getParentEmailId());
+            }
+        }
+
         request.setStudent(student);
         request.setParentStatus("PENDING");
         request.setMentorStatus("PENDING");
@@ -84,6 +90,9 @@ public class LeaveService {
         return leaveRepository.save(leave);
     }
 
+    @Autowired
+    private NotificationService notificationService;
+
     public List<LeaveRequest> getPendingLeavesForMentor(String mentorUid) {
         return leaveRepository.findByStudentMentorFirebaseUidAndParentStatus(mentorUid);
     }
@@ -95,8 +104,15 @@ public class LeaveService {
         leave.setMentorStatus(status);
         LeaveRequest saved = leaveRepository.save(leave);
 
-        // Notify Student
+        // Notify Student via email
         emailService.sendStudentLeaveStatus(leave.getStudent().getEmail(), status, remarks);
+
+        // Notify Student via in-app dashboard
+        try {
+            notificationService.sendLeaveUpdate(leave.getStudent().getFirebaseUid(), leave.getLeaveType(), status);
+        } catch (Exception e) {
+            // ignore
+        }
 
         return saved;
     }

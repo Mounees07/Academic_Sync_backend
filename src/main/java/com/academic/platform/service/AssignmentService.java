@@ -31,6 +31,9 @@ public class AssignmentService {
         @Autowired
         private UserRepository userRepository;
 
+        @Autowired
+        private NotificationService notificationService;
+
         public Assignment createAssignment(Long sectionId, Assignment assignment) {
                 Section section = sectionRepository.findById(sectionId)
                                 .orElseThrow(() -> new RuntimeException("Section not found"));
@@ -70,7 +73,19 @@ public class AssignmentService {
                 submission.setGrade(grade);
                 submission.setFeedback(feedback);
 
-                return submissionRepository.save(submission);
+                Submission saved = submissionRepository.save(submission);
+
+                try {
+                        notificationService.createNotification(
+                                saved.getStudent().getFirebaseUid(),
+                                "MARK_UPDATE",
+                                "Assignment Graded",
+                                "Your instructor has graded your assignment '" + saved.getAssignment().getTitle() + "'. You scored " + grade + ".",
+                                "/student/assignments"
+                        );
+                } catch (Exception e) {}
+
+                return saved;
         }
 
         public List<Submission> getAssignmentSubmissions(Long assignmentId) {

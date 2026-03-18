@@ -34,6 +34,9 @@ public class FinanceService {
         return feeRecordRepository.findById(id);
     }
 
+    @Autowired
+    private NotificationService notificationService;
+
     public List<FeeRecord> getFeesByStudent(String firebaseUid) {
         return feeRecordRepository.findByStudent_FirebaseUid(firebaseUid);
     }
@@ -41,14 +44,37 @@ public class FinanceService {
     public FeeRecord createFeeRecord(Map<String, Object> data) {
         FeeRecord record = new FeeRecord();
         applyFeeData(record, data);
-        return feeRecordRepository.save(record);
+        FeeRecord saved = feeRecordRepository.save(record);
+        
+        checkAndSendFeeNotification(saved, null);
+        return saved;
     }
 
     public FeeRecord updateFeeRecord(Long id, Map<String, Object> data) {
         FeeRecord record = feeRecordRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Fee record not found: " + id));
+        String oldStatus = record.getPaymentStatus();
         applyFeeData(record, data);
-        return feeRecordRepository.save(record);
+        FeeRecord saved = feeRecordRepository.save(record);
+
+        checkAndSendFeeNotification(saved, oldStatus);
+        return saved;
+    }
+
+    private void checkAndSendFeeNotification(FeeRecord saved, String oldStatus) {
+        if ("PAID".equalsIgnoreCase(saved.getPaymentStatus()) && !"PAID".equalsIgnoreCase(oldStatus)) {
+            try {
+                notificationService.createNotification(
+                        saved.getStudent().getFirebaseUid(),
+                        "FEE_PAID",
+                        "Payment Successful",
+                        "We have successfully received your fee payment. Receipt #" + saved.getId() + " has been generated.",
+                        "/student/fees"
+                );
+            } catch (Exception e) {
+                // Ignore silent failures for notifications
+            }
+        }
     }
 
     public void deleteFeeRecord(Long id) {

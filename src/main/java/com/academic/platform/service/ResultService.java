@@ -3,11 +3,11 @@ package com.academic.platform.service;
 import com.academic.platform.model.Result;
 import com.academic.platform.model.User;
 import com.academic.platform.model.Course;
-import com.academic.platform.model.Section;
 import com.academic.platform.repository.ResultRepository;
 import com.academic.platform.repository.UserRepository;
 import com.academic.platform.repository.CourseRepository;
 import com.academic.platform.repository.SectionRepository;
+import com.academic.platform.repository.EnrollmentRepository;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,12 +24,16 @@ import java.util.HashMap;
 import java.util.TreeMap;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.Collections;
 
 @Service
 public class ResultService {
 
     @Autowired
     private ResultRepository resultRepository;
+
+    @Autowired
+    private NotificationService notificationService;
 
     @Autowired
     private UserRepository userRepository;
@@ -40,45 +44,16 @@ public class ResultService {
     @Autowired
     private SectionRepository sectionRepository;
 
+    @Autowired
+    private EnrollmentRepository enrollmentRepository;
+
     public byte[] generateTemplate(String dept, Integer sem) {
         StringBuilder csv = new StringBuilder();
 
         // 1. Base Headers
         csv.append("StudentEmail,RegisterNumber,StudentName,Department,Semester");
 
-        // 2. Fetch Dynamic Subjects for this Batch
-        List<String> subjectCodes = new ArrayList<>();
-        if (sem != null) {
-            // Fetch Sections for this Semester
-            // Assuming simplified exact match first since we control the UI values
-            List<Section> sections = sectionRepository.findBySemester(String.valueOf(sem));
-
-            // Filter by Dept if provided
-            if (dept != null) {
-                sections = sections.stream()
-                        .filter(s -> s.getFaculty().getStudentDetails().getDepartment() != null
-                                && s.getFaculty().getStudentDetails().getDepartment().equalsIgnoreCase(dept))
-                        .collect(Collectors.toList());
-            }
-
-            subjectCodes = sections.stream()
-                    .map(s -> s.getCourse().getCode())
-                    .distinct()
-                    .sorted()
-                    .collect(Collectors.toList());
-        }
-
-        // 3. Append Subject Headers
-        if (subjectCodes.isEmpty()) {
-            csv.append(",SubjectCode1,SubjectCode2,SubjectCode3,SubjectCode4,SubjectCode5");
-        } else {
-            for (String code : subjectCodes) {
-                csv.append(",").append(code);
-            }
-        }
-        csv.append("\n");
-
-        // 4. Fetch Students
+        // 2. Fetch Students
         List<User> students;
         if (dept != null && sem != null) {
             students = userRepository.findByStudentDetails_DepartmentAndStudentDetails_Semester(dept, sem);
@@ -88,20 +63,84 @@ public class ResultService {
             students = userRepository.findByRole(com.academic.platform.model.Role.STUDENT);
         }
 
+        // 3. Fetch enrollments to get dynamic subjects correctly
+        List<String> validSubjectCodes = new ArrayList<>();
+        Map<Long, List<String>> studentSubjects = new HashMap<>();
+
+        for (User stu : students) {
+            List<com.academic.platform.model.Enrollment> enrollments = enrollmentRepository.findByStudent(stu);
+            List<String> sCodes = new ArrayList<>();
+            for (com.academic.platform.model.Enrollment e : enrollments) {
+                if (e.getSection() != null && e.getSection().getCourse() != null) {
+                    sCodes.add(e.getSection().getCourse().getCode());
+                }
+            }
+            studentSubjects.put(stu.getId(), sCodes);
+            for(String c : sCodes) {
+                if (!validSubjectCodes.contains(c)) {
+                    validSubjectCodes.add(c);
+                }
+            }
+        }
+        Collections.sort(validSubjectCodes);
+        List<String> subjectCodes = validSubjectCodes;
+
+        // Fallback if no valid subjects are found from enrollments:
+        if (subjectCodes.isEmpty() && dept != null) {
+            List<Course> deptCourses = courseRepository.findByDepartment(dept);
+            if (deptCourses.isEmpty()) {
+                deptCourses = courseRepository.findAll();
+            }
+            subjectCodes = deptCourses.stream()
+                .map(Course::getCode)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        }
+
+        // Fallback if no students precisely match the semester in the demo DB:
+        if (students.isEmpty() && dept != null) {
+            students = userRepository.findByStudentDetails_Department(dept);
+        }
+
+        // 4. Append Subject Headers
+        if (subjectCodes.isEmpty()) {
+            csv.append(",SubjectCode1,SubjectCode2,SubjectCode3,SubjectCode4,SubjectCode5");
+        } else {
+            for (String code : subjectCodes) {
+                csv.append(",").append(code);
+            }
+        }
+        csv.append("\n");
+
         // 5. Append Rows
         for (User s : students) {
-            csv.append(String.format("%s,%s,%s,%s,%d",
-                    s.getEmail(),
-                    s.getStudentDetails().getRollNumber() != null ? s.getStudentDetails().getRollNumber() : "",
-                    s.getFullName(),
-                    s.getStudentDetails().getDepartment() != null ? s.getStudentDetails().getDepartment() : "",
-                    s.getStudentDetails().getSemester() != null ? s.getStudentDetails().getSemester() : 0));
+            String name = s.getFullName() != null ? s.getFullName() : "No Name";
+            name = name.replace("\"", "\"\"");
 
-            // Add empty commas for subjects to match header count
+            csv.append(String.format("%s,%s,\"%s\",%s,%d",
+                    s.getEmail() != null ? s.getEmail() : "",
+                    s.getStudentDetails() != null && s.getStudentDetails().getRollNumber() != null ? s.getStudentDetails().getRollNumber() : "",
+                    name,
+                    s.getStudentDetails() != null && s.getStudentDetails().getDepartment() != null ? s.getStudentDetails().getDepartment() : "",
+                    s.getStudentDetails() != null && s.getStudentDetails().getSemester() != null ? s.getStudentDetails().getSemester() : 0));
+
             int count = subjectCodes.isEmpty() ? 5 : subjectCodes.size();
-            for (int i = 0; i < count; i++)
-                csv.append(",");
+            List<String> sCodes = studentSubjects.get(s.getId());
+            if (sCodes == null) sCodes = new ArrayList<>();
 
+            for (int i = 0; i < count; i++) {
+                if (subjectCodes.isEmpty()) {
+                    csv.append(","); // empty for placeholders
+                } else {
+                    String colSubject = subjectCodes.get(i);
+                    if (sCodes.contains(colSubject)) {
+                        csv.append(","); // empty cell for entering marks
+                    } else {
+                        csv.append(",NA"); // student not enrolled in this subject
+                    }
+                }
+            }
             csv.append("\n");
         }
         return csv.toString().getBytes();
@@ -215,16 +254,26 @@ public class ResultService {
                     }
                 }
 
-                // Update SGPA for Student
-                if (hasResults && totalCredits > 0) {
-                    double sgpa = totalGradePoints / totalCredits;
-                    sgpa = Math.round(sgpa * 100.0) / 100.0;
-                    student.getStudentDetails().setGpa(sgpa);
-                    userRepository.save(student);
-                    logs.add("✅ " + email + ": Updated Results & SGPA: " + sgpa);
-                }
-            }
+                    // Update SGPA for Student
+                    if (hasResults && totalCredits > 0) {
+                        double sgpa = totalGradePoints / totalCredits;
+                        sgpa = Math.round(sgpa * 100.0) / 100.0;
+                        student.getStudentDetails().setSgpa(sgpa);
+                        student.getStudentDetails().setGpa(sgpa);
+                        userRepository.save(student);
+                        logs.add("✅ " + email + ": Updated Results & SGPA: " + sgpa);
 
+                        try {
+                            notificationService.createNotification(
+                                    student.getFirebaseUid(),
+                                    "RESULT_PUBLISHED",
+                                    "Semester Results Published",
+                                    "The Controller of Examinations has officially released your latest semester results.",
+                                    "/student/results"
+                            );
+                        } catch (Exception ignored) {}
+                    }
+                }
         } catch (Exception e) {
             logs.add("❗ File Error: " + e.getMessage());
             e.printStackTrace();
