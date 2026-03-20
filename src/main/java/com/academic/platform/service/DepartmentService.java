@@ -1,6 +1,7 @@
 package com.academic.platform.service;
 
 import com.academic.platform.dto.DepartmentAnalyticsDTO;
+import com.academic.platform.dto.CoreCourseProgressDTO;
 import com.academic.platform.dto.DepartmentDashboardDTO;
 import com.academic.platform.model.Role;
 import com.academic.platform.model.User;
@@ -13,6 +14,7 @@ import com.academic.platform.repository.LeaveRequestRepository;
 import com.academic.platform.repository.UserRepository;
 import com.academic.platform.repository.AttendanceRepository;
 import com.academic.platform.repository.EnrollmentRepository;
+import com.academic.platform.repository.SectionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -44,8 +46,11 @@ public class DepartmentService {
 		@Autowired
 		private com.academic.platform.repository.CourseAttendanceSessionRepository sessionRepository;
 
-		@Autowired
-		private EnrollmentRepository enrollmentRepository;
+        @Autowired
+        private EnrollmentRepository enrollmentRepository;
+
+        @Autowired
+        private SectionRepository sectionRepository;
 
 		@Autowired
 		private AttendanceRepository attendanceRepository;
@@ -90,12 +95,37 @@ public class DepartmentService {
                                                 || "PENDING".equals(l.getParentStatus()))
                                 .count());
 
-                List<com.academic.platform.model.Course> coreCourses = courseRepository.findAll().stream()
-                        .filter(c -> isDepartmentMatch(c.getDepartment(), department))
+                List<CoreCourseProgressDTO> coreCourses = sectionRepository.findAll().stream()
+                        .filter(section -> section.getCourse() != null
+                                && isDepartmentMatch(section.getCourse().getDepartment(), department))
+                        .sorted(Comparator
+                                .comparing((com.academic.platform.model.Section section) ->
+                                        section.getCourse() != null ? section.getCourse().getCode() : "")
+                                .thenComparing(section -> section.getYear() != null ? section.getYear() : 0))
                         .limit(10)
+                        .map(this::mapCoreCourseProgress)
                         .toList();
                 dto.setCoreCourses(coreCourses);
 
+                return dto;
+        }
+
+        private CoreCourseProgressDTO mapCoreCourseProgress(com.academic.platform.model.Section section) {
+                CoreCourseProgressDTO dto = new CoreCourseProgressDTO();
+                dto.setSectionId(section.getId());
+                dto.setCourseCode(section.getCourse() != null ? section.getCourse().getCode() : "N/A");
+                dto.setCourseName(section.getCourse() != null ? section.getCourse().getName() : "Untitled Course");
+
+                String instructorName = section.getFaculty() != null && section.getFaculty().getFullName() != null
+                                ? section.getFaculty().getFullName()
+                                : "Unassigned";
+                dto.setPrimaryInstructor(instructorName);
+                dto.setPrimaryInstructorInitials(Arrays.stream(instructorName.trim().split("\\s+"))
+                                .filter(part -> !part.isBlank())
+                                .map(part -> part.substring(0, 1).toUpperCase())
+                                .limit(2)
+                                .collect(Collectors.joining()));
+                dto.setSyllabusCompletion(section.getSyllabusCompletion() != null ? section.getSyllabusCompletion() : 0);
                 return dto;
         }
 

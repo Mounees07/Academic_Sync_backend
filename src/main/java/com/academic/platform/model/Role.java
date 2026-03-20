@@ -7,6 +7,7 @@ public enum Role {
     HOD,
     PRINCIPAL,
     ADMIN,
+    PLACEMENT_COORDINATOR,
     COE,
     GATE_SECURITY
 }

@@ -45,6 +45,15 @@ public class PlacementProfile {
     @Builder.Default
     private Double cgpaScore = 0.0;           // stored from student profile
 
+    @Builder.Default
+    private String placementStatus = "NOT_READY";
+
+    @Builder.Default
+    private String resumeReviewStatus = "PENDING";
+
+    @Column(columnDefinition = "TEXT")
+    private String resumeRemarks;
+
     // Career preferences
     @Column(length = 200)
     private String preferredRole;
@@ -66,6 +75,8 @@ public class PlacementProfile {
         if (totalSkills == null) totalSkills = 10;
         if (aptitudeScore == null) aptitudeScore = 0.0;
         if (mockInterviewScore == null) mockInterviewScore = 0.0;
+        if (placementStatus == null || placementStatus.isBlank()) placementStatus = "NOT_READY";
+        if (resumeReviewStatus == null || resumeReviewStatus.isBlank()) resumeReviewStatus = "PENDING";
     }
 
     @PreUpdate

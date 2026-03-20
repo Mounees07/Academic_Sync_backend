@@ -26,6 +26,9 @@ public class Section {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private Boolean testsEnabled = false;
 
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private Integer syllabusCompletion = 0;
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -83,6 +86,14 @@ public class Section {
         this.testsEnabled = testsEnabled;
     }
 
+    public Integer getSyllabusCompletion() {
+        return syllabusCompletion;
+    }
+
+    public void setSyllabusCompletion(Integer syllabusCompletion) {
+        this.syllabusCompletion = syllabusCompletion;
+    }
+
     // Manual Builder
     public static SectionBuilder builder() {
         return new SectionBuilder();
@@ -93,6 +104,7 @@ public class Section {
         private User faculty;
         private String semester;
         private Integer year;
+        private Integer syllabusCompletion;
 
         public SectionBuilder course(Course course) {
             this.course = course;
@@ -114,12 +126,20 @@ public class Section {
             return this;
         }
 
+        public SectionBuilder syllabusCompletion(Integer syllabusCompletion) {
+            this.syllabusCompletion = syllabusCompletion;
+            return this;
+        }
+
         public Section build() {
             Section s = new Section();
             s.setCourse(course);
             s.setFaculty(faculty);
             s.setSemester(semester);
             s.setYear(year);
+            if (syllabusCompletion != null) {
+                s.setSyllabusCompletion(syllabusCompletion);
+            }
             return s;
         }
     }

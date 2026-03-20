@@ -31,12 +31,18 @@ public class PlacementProfileController {
         if (profile == null) {
             Map<String, Object> empty = new LinkedHashMap<>();
             empty.put("resumeUploaded", false);
+            empty.put("resumeUrl", null);
             empty.put("skillsCompleted", 0);
             empty.put("totalSkills", 10);
             empty.put("aptitudeScore", 0);
             empty.put("mockInterviewScore", 0);
             empty.put("readinessScore", 0);
             empty.put("completedSkillsList", "");
+            empty.put("preferredRole", "");
+            empty.put("preferredCompanies", "");
+            empty.put("placementStatus", "NOT_READY");
+            empty.put("resumeReviewStatus", "PENDING");
+            empty.put("resumeRemarks", "");
             return ResponseEntity.ok(empty);
         }
         return ResponseEntity.ok(buildResponse(profile));
@@ -49,7 +55,8 @@ public class PlacementProfileController {
         String actorUid = securityUtils.getCurrentUserUid();
         User actor = actorUid == null ? null : userRepository.findByFirebaseUid(actorUid).orElse(null);
         boolean isSelfUpdate = actorUid != null && actorUid.equals(uid);
-        boolean canManagePlacement = actor != null && actor.getRole() != Role.STUDENT;
+        boolean canManagePlacement = actor != null &&
+                (actor.getRole() == Role.PLACEMENT_COORDINATOR || actor.getRole() == Role.ADMIN);
 
         if (!isSelfUpdate && !canManagePlacement) {
             return ResponseEntity.status(403).build();
@@ -105,6 +112,9 @@ public class PlacementProfileController {
         m.put("completedSkillsList", p.getCompletedSkillsList());
         m.put("preferredRole", p.getPreferredRole());
         m.put("preferredCompanies", p.getPreferredCompanies());
+        m.put("placementStatus", p.getPlacementStatus());
+        m.put("resumeReviewStatus", p.getResumeReviewStatus());
+        m.put("resumeRemarks", p.getResumeRemarks());
         m.put("updatedAt", p.getUpdatedAt());
         return m;
     }

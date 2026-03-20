@@ -153,6 +153,14 @@ public class CourseService {
         return sectionRepository.save(section);
     }
 
+    public Section updateSyllabusCompletion(Long sectionId, Integer completion) {
+        Section section = sectionRepository.findById(sectionId)
+                .orElseThrow(() -> new RuntimeException("Section not found"));
+        int normalizedCompletion = Math.max(0, Math.min(100, completion == null ? 0 : completion));
+        section.setSyllabusCompletion(normalizedCompletion);
+        return sectionRepository.save(section);
+    }
+
     public List<Section> getSectionsByFaculty(String facultyUid) {
         User faculty = userRepository.findByFirebaseUid(facultyUid)
                 .orElseThrow(() -> new RuntimeException("Faculty not found"));

@@ -72,6 +72,14 @@ public class CourseController {
         return ResponseEntity.ok(courseService.toggleSectionTests(id));
     }
 
+    @PatchMapping("/sections/{id}/syllabus-completion")
+    public ResponseEntity<Section> updateSyllabusCompletion(
+            @PathVariable Long id,
+            @RequestBody Map<String, Object> body) {
+        Integer completion = Integer.parseInt(body.getOrDefault("syllabusCompletion", 0).toString());
+        return ResponseEntity.ok(courseService.updateSyllabusCompletion(id, completion));
+    }
+
     @GetMapping("/sections/faculty/{facultyUid}")
     public ResponseEntity<List<Section>> getFacultySections(@PathVariable String facultyUid) {
         return ResponseEntity.ok(courseService.getSectionsByFaculty(facultyUid));
