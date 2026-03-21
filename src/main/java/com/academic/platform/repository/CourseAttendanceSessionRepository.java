@@ -10,6 +10,8 @@ import java.time.LocalDate;
 public interface CourseAttendanceSessionRepository extends JpaRepository<CourseAttendanceSession, Long> {
     List<CourseAttendanceSession> findBySectionIdOrderByCreatedAtDesc(Long sectionId);
 
+    List<CourseAttendanceSession> findBySectionIdAndScheduleIdOrderByCreatedAtDesc(Long sectionId, Long scheduleId);
+
     Optional<CourseAttendanceSession> findFirstByOtpAndActiveTrue(String otp);
 
     List<CourseAttendanceSession> findByActiveTrueAndExpiresAtBefore(LocalDateTime time);

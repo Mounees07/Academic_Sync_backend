@@ -228,6 +228,8 @@ public class AcademicScheduleService {
                         schedule.setSubjectName(data[6]);
                     if (data.length > 7)
                         schedule.setDescription(data[7]);
+                    if (data.length > 8)
+                        schedule.setLocation(data[8]);
 
                     schedule.setDepartment(
                             (uploader.getStudentDetails() != null && uploader.getStudentDetails().getDepartment() != null)

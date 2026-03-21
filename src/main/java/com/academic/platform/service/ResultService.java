@@ -1,13 +1,18 @@
 package com.academic.platform.service;
 
-import com.academic.platform.model.Result;
-import com.academic.platform.model.User;
 import com.academic.platform.model.Course;
-import com.academic.platform.repository.ResultRepository;
-import com.academic.platform.repository.UserRepository;
+import com.academic.platform.model.InternalMark;
+import com.academic.platform.model.Result;
+import com.academic.platform.model.Section;
+import com.academic.platform.model.User;
 import com.academic.platform.repository.CourseRepository;
-import com.academic.platform.repository.SectionRepository;
 import com.academic.platform.repository.EnrollmentRepository;
+import com.academic.platform.repository.InternalMarkRepository;
+import com.academic.platform.repository.ResultRepository;
+import com.academic.platform.repository.AcademicScheduleRepository;
+import com.academic.platform.repository.SectionRepository;
+import com.academic.platform.repository.UserRepository;
+import com.academic.platform.model.AcademicSchedule;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,13 +23,15 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.TreeMap;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
-import java.util.Collections;
 
 @Service
 public class ResultService {
@@ -47,102 +54,320 @@ public class ResultService {
     @Autowired
     private EnrollmentRepository enrollmentRepository;
 
-    public byte[] generateTemplate(String dept, Integer sem) {
-        StringBuilder csv = new StringBuilder();
+    @Autowired
+    private InternalMarkRepository internalMarkRepository;
 
-        // 1. Base Headers
-        csv.append("StudentEmail,RegisterNumber,StudentName,Department,Semester");
+    @Autowired
+    private AcademicScheduleRepository academicScheduleRepository;
 
-        // 2. Fetch Students
+    private String normalizeText(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private Integer parseSemesterValue(String value) {
+        String normalized = normalizeText(value).toUpperCase()
+                .replace("SEMESTER", "")
+                .replace("SEM", "")
+                .trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(normalized);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private boolean matchesScheduledExamSubject(String scheduleSubject, String courseCode, String courseName) {
+        String normalizedSchedule = normalizeText(scheduleSubject);
+        if (normalizedSchedule.isBlank()) {
+            return false;
+        }
+        return normalizedSchedule.equalsIgnoreCase(normalizeText(courseName))
+                || normalizedSchedule.equalsIgnoreCase(normalizeText(courseCode));
+    }
+
+    private boolean hasSemesterExamScheduled(String courseCode, String courseName) {
+        return academicScheduleRepository.findByType(AcademicSchedule.ScheduleType.SEMESTER_EXAM).stream()
+                .anyMatch(schedule -> matchesScheduledExamSubject(schedule.getSubjectName(), courseCode, courseName));
+    }
+
+    private List<User> getStudentsForDepartmentAndSemester(String dept, Integer sem) {
         List<User> students;
         if (dept != null && sem != null) {
-            students = userRepository.findByStudentDetails_DepartmentAndStudentDetails_Semester(dept, sem);
+            students = userRepository.findByStudentDetails_DepartmentAndStudentDetails_Semester(dept, sem).stream()
+                    .filter(user -> user.getRole() == com.academic.platform.model.Role.STUDENT)
+                    .collect(Collectors.toList());
         } else if (dept != null) {
-            students = userRepository.findByStudentDetails_Department(dept);
+            students = userRepository.findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(
+                    dept,
+                    List.of(com.academic.platform.model.Role.STUDENT)
+            );
         } else {
             students = userRepository.findByRole(com.academic.platform.model.Role.STUDENT);
         }
 
-        // 3. Fetch enrollments to get dynamic subjects correctly
-        List<String> validSubjectCodes = new ArrayList<>();
-        Map<Long, List<String>> studentSubjects = new HashMap<>();
-
-        for (User stu : students) {
-            List<com.academic.platform.model.Enrollment> enrollments = enrollmentRepository.findByStudent(stu);
-            List<String> sCodes = new ArrayList<>();
-            for (com.academic.platform.model.Enrollment e : enrollments) {
-                if (e.getSection() != null && e.getSection().getCourse() != null) {
-                    sCodes.add(e.getSection().getCourse().getCode());
-                }
-            }
-            studentSubjects.put(stu.getId(), sCodes);
-            for(String c : sCodes) {
-                if (!validSubjectCodes.contains(c)) {
-                    validSubjectCodes.add(c);
-                }
-            }
+        if (students.isEmpty() && dept != null) {
+            students = userRepository.findByStudentDetails_DepartmentIgnoreCaseAndRoleIn(
+                    dept,
+                    List.of(com.academic.platform.model.Role.STUDENT)
+            );
         }
-        Collections.sort(validSubjectCodes);
-        List<String> subjectCodes = validSubjectCodes;
 
-        // Fallback if no valid subjects are found from enrollments:
+        if (students.isEmpty()) {
+            String targetDept = normalizeText(dept);
+            students = userRepository.findAll().stream()
+                    .filter(user -> user.getStudentDetails() != null)
+                    .filter(user -> targetDept.isBlank()
+                            || normalizeText(user.getStudentDetails().getDepartment()).equalsIgnoreCase(targetDept)
+                            || normalizeText(user.getStudentDetails().getBranchName()).equalsIgnoreCase(targetDept)
+                            || normalizeText(user.getStudentDetails().getBranchCode()).equalsIgnoreCase(targetDept))
+                    .filter(user -> sem == null
+                            || sem.equals(user.getStudentDetails().getSemester()))
+                    .collect(Collectors.toList());
+        }
+
+        if (students.isEmpty() && dept != null) {
+            String targetDept = normalizeText(dept);
+            students = userRepository.findAll().stream()
+                    .filter(user -> user.getStudentDetails() != null)
+                    .filter(user -> normalizeText(user.getStudentDetails().getDepartment()).equalsIgnoreCase(targetDept)
+                            || normalizeText(user.getStudentDetails().getBranchName()).equalsIgnoreCase(targetDept)
+                            || normalizeText(user.getStudentDetails().getBranchCode()).equalsIgnoreCase(targetDept))
+                    .filter(user -> sem == null
+                            || sem.equals(user.getStudentDetails().getSemester()))
+                    .collect(Collectors.toList());
+        }
+
+        if (students.isEmpty()) {
+            students = userRepository.findByRole(com.academic.platform.model.Role.STUDENT).stream()
+                    .filter(user -> user.getStudentDetails() != null)
+                    .filter(user -> sem == null
+                            || sem.equals(user.getStudentDetails().getSemester()))
+                    .collect(Collectors.toList());
+        }
+
+        if (students.isEmpty()) {
+            students = userRepository.findAll().stream()
+                    .filter(user -> user.getStudentDetails() != null
+                            || user.getRole() == com.academic.platform.model.Role.STUDENT)
+                    .filter(user -> user.getStudentDetails() != null)
+                    .filter(user -> sem == null
+                            || sem.equals(user.getStudentDetails().getSemester()))
+                    .collect(Collectors.toList());
+        }
+
+        return students.stream()
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(User::getId, user -> user, (left, right) -> left, LinkedHashMap::new),
+                        map -> new ArrayList<>(map.values())
+                ));
+    }
+
+    private List<Section> getStudentSemesterSections(User student, String dept, Integer sem) {
+        return enrollmentRepository.findByStudent(student).stream()
+                .map(com.academic.platform.model.Enrollment::getSection)
+                .filter(section -> section != null && section.getCourse() != null)
+                .filter(section -> hasSemesterExamScheduled(
+                        section.getCourse().getCode(),
+                        section.getCourse().getName()))
+                // Student filtering already scopes department; use enrollments + semester here.
+                .filter(section -> {
+                    if (sem == null) {
+                        return true;
+                    }
+                    Integer sectionSemester = parseSemesterValue(section.getSemester());
+                    if (sectionSemester != null) {
+                        return sem.equals(sectionSemester);
+                    }
+                    return student.getStudentDetails() == null
+                            || student.getStudentDetails().getSemester() == null
+                            || sem.equals(student.getStudentDetails().getSemester());
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Double resolveInternalMarks(User student, Section section, Integer sem) {
+        Optional<InternalMark> exactMark = internalMarkRepository
+                .findByStudentFirebaseUidAndSectionId(student.getFirebaseUid(), section.getId());
+        if (exactMark.isPresent()) {
+            return Math.round(exactMark.get().getPercentageScore() * 100.0) / 100.0;
+        }
+
+        return internalMarkRepository.findByStudentFirebaseUidAndSemester(student.getFirebaseUid(), sem != null ? sem : 0)
+                .stream()
+                .filter(mark -> mark.getSubjectCode() != null
+                        && section.getCourse().getCode() != null
+                        && mark.getSubjectCode().equalsIgnoreCase(section.getCourse().getCode()))
+                .map(InternalMark::getPercentageScore)
+                .findFirst()
+                .map(score -> Math.round(score * 100.0) / 100.0)
+                .orElse(0.0);
+    }
+
+    private double resolveInternalMarksFromExisting(User student, String subjectCode, Integer sem) {
+        if (subjectCode == null || subjectCode.isBlank()) {
+            return 0.0;
+        }
+
+        return internalMarkRepository.findByStudentFirebaseUidAndSemester(student.getFirebaseUid(), sem != null ? sem : 0)
+                .stream()
+                .filter(mark -> subjectCode.equalsIgnoreCase(mark.getSubjectCode()))
+                .map(InternalMark::getPercentageScore)
+                .findFirst()
+                .map(score -> Math.round(score * 100.0) / 100.0)
+                .orElse(0.0);
+    }
+
+    private double calculateFinalPercentage(double internalMarks, double semesterMarks) {
+        return (internalMarks + semesterMarks) / 2.0;
+    }
+
+    private List<Map<String, Object>> buildFallbackSubjectsFromInternalMarks(User student, Integer sem) {
+        return internalMarkRepository.findByStudentFirebaseUidAndSemester(student.getFirebaseUid(), sem != null ? sem : 0)
+                .stream()
+                .filter(mark -> hasSemesterExamScheduled(mark.getSubjectCode(), mark.getSubjectName()))
+                .map(mark -> {
+                    double internalMarks = Math.round(mark.getPercentageScore() * 100.0) / 100.0;
+                    double semesterMarks = 0.0;
+                    double totalMarks = internalMarks;
+                    double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
+                    String grade = calculateGrade(finalPercentage);
+
+                    Map<String, Object> subject = new LinkedHashMap<>();
+                    subject.put("sectionId", mark.getSection() != null ? mark.getSection().getId() : null);
+                    subject.put("subjectCode", mark.getSubjectCode() != null ? mark.getSubjectCode() : mark.getSubjectName());
+                    subject.put("subjectName", mark.getSubjectName());
+                    subject.put("credits", mark.getSection() != null
+                            && mark.getSection().getCourse() != null
+                            && mark.getSection().getCourse().getCredits() != null
+                            ? mark.getSection().getCourse().getCredits()
+                            : 3);
+                    subject.put("internalMarks", internalMarks);
+                    subject.put("semesterMarks", semesterMarks);
+                    subject.put("totalMarks", Math.round(totalMarks * 100.0) / 100.0);
+                    subject.put("finalPercentage", Math.round(finalPercentage * 100.0) / 100.0);
+                    subject.put("grade", grade);
+                    return subject;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private Result saveOrUpdateResult(User student, String subjectCode, Integer semester, double internalMarks, double semesterMarks) {
+        Optional<Course> courseOpt = courseRepository.findByCode(subjectCode);
+        int credits = courseOpt.map(Course::getCredits).orElse(3);
+        if (credits <= 0) {
+            credits = 3;
+        }
+
+        double totalMarks = internalMarks + semesterMarks;
+        double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
+        String grade = calculateGrade(finalPercentage);
+        int gradePoints = getGradePoints(grade);
+
+        Result result = resultRepository.findByStudentAndSemesterAndSubjectCode(student, semester, subjectCode)
+                .orElse(Result.builder()
+                        .student(student)
+                        .subjectCode(subjectCode)
+                        .semester(semester)
+                        .examType("SEMESTER")
+                        .build());
+
+        result.setSubjectName(courseOpt.map(Course::getName).orElse(subjectCode));
+        result.setCredits(credits);
+        result.setInternalMarks(Math.round(internalMarks * 100.0) / 100.0);
+        result.setSemesterMarks(Math.round(semesterMarks * 100.0) / 100.0);
+        result.setTotalMarks(Math.round(totalMarks * 100.0) / 100.0);
+        result.setGrade(grade);
+        result.setGradePoints(gradePoints);
+        result.setPublishedDate(LocalDate.now());
+        result.setExamType("SEMESTER");
+
+        return resultRepository.save(result);
+    }
+
+    public byte[] generateTemplate(String dept, Integer sem) {
+        StringBuilder csv = new StringBuilder();
+        csv.append("StudentEmail,RegisterNumber,StudentName,Department,Semester");
+
+        List<User> students = getStudentsForDepartmentAndSemester(dept, sem);
+        Map<Long, List<Section>> studentSections = new HashMap<>();
+        LinkedHashSet<String> subjectCodes = new LinkedHashSet<>();
+
+        for (User student : students) {
+            List<Section> sections = getStudentSemesterSections(student, dept, sem);
+            studentSections.put(student.getId(), sections);
+            sections.stream()
+                    .map(section -> section.getCourse().getCode())
+                    .filter(code -> code != null && !code.isBlank())
+                    .sorted()
+                    .forEach(subjectCodes::add);
+        }
+
         if (subjectCodes.isEmpty() && dept != null) {
             List<Course> deptCourses = courseRepository.findByDepartment(dept);
             if (deptCourses.isEmpty()) {
                 deptCourses = courseRepository.findAll();
             }
-            subjectCodes = deptCourses.stream()
-                .map(Course::getCode)
-                .distinct()
-                .sorted()
-                .collect(Collectors.toList());
+            deptCourses.stream()
+                    .map(Course::getCode)
+                    .filter(code -> code != null && !code.isBlank())
+                    .sorted()
+                    .forEach(subjectCodes::add);
         }
 
-        // Fallback if no students precisely match the semester in the demo DB:
-        if (students.isEmpty() && dept != null) {
-            students = userRepository.findByStudentDetails_Department(dept);
-        }
-
-        // 4. Append Subject Headers
         if (subjectCodes.isEmpty()) {
-            csv.append(",SubjectCode1,SubjectCode2,SubjectCode3,SubjectCode4,SubjectCode5");
+            csv.append(",SubjectCode1_Internal,SubjectCode1_Semester");
         } else {
             for (String code : subjectCodes) {
-                csv.append(",").append(code);
+                csv.append(",").append(code).append("_Internal");
+                csv.append(",").append(code).append("_Semester");
             }
         }
         csv.append("\n");
 
-        // 5. Append Rows
-        for (User s : students) {
-            String name = s.getFullName() != null ? s.getFullName() : "No Name";
+        for (User student : students) {
+            String name = student.getFullName() != null ? student.getFullName() : "No Name";
             name = name.replace("\"", "\"\"");
 
             csv.append(String.format("%s,%s,\"%s\",%s,%d",
-                    s.getEmail() != null ? s.getEmail() : "",
-                    s.getStudentDetails() != null && s.getStudentDetails().getRollNumber() != null ? s.getStudentDetails().getRollNumber() : "",
+                    student.getEmail() != null ? student.getEmail() : "",
+                    student.getStudentDetails() != null && student.getStudentDetails().getRollNumber() != null
+                            ? student.getStudentDetails().getRollNumber() : "",
                     name,
-                    s.getStudentDetails() != null && s.getStudentDetails().getDepartment() != null ? s.getStudentDetails().getDepartment() : "",
-                    s.getStudentDetails() != null && s.getStudentDetails().getSemester() != null ? s.getStudentDetails().getSemester() : 0));
+                    student.getStudentDetails() != null && student.getStudentDetails().getDepartment() != null
+                            ? student.getStudentDetails().getDepartment() : "",
+                    student.getStudentDetails() != null && student.getStudentDetails().getSemester() != null
+                            ? student.getStudentDetails().getSemester() : 0));
 
-            int count = subjectCodes.isEmpty() ? 5 : subjectCodes.size();
-            List<String> sCodes = studentSubjects.get(s.getId());
-            if (sCodes == null) sCodes = new ArrayList<>();
+            List<Section> sections = studentSections.getOrDefault(student.getId(), new ArrayList<>());
+            Map<String, Section> sectionByCode = sections.stream()
+                    .filter(section -> section.getCourse() != null && section.getCourse().getCode() != null)
+                    .collect(Collectors.toMap(
+                            section -> section.getCourse().getCode(),
+                            section -> section,
+                            (left, right) -> left,
+                            LinkedHashMap::new));
 
-            for (int i = 0; i < count; i++) {
-                if (subjectCodes.isEmpty()) {
-                    csv.append(","); // empty for placeholders
-                } else {
-                    String colSubject = subjectCodes.get(i);
-                    if (sCodes.contains(colSubject)) {
-                        csv.append(","); // empty cell for entering marks
-                    } else {
-                        csv.append(",NA"); // student not enrolled in this subject
+            if (subjectCodes.isEmpty()) {
+                csv.append(",0.00,");
+            } else {
+                for (String code : subjectCodes) {
+                    Section section = sectionByCode.get(code);
+                    if (section == null) {
+                        csv.append(",NA,NA");
+                        continue;
                     }
+
+                    Double internalMarks = resolveInternalMarks(student, section, sem);
+                    csv.append(",").append(String.format("%.2f", internalMarks));
+                    csv.append(",");
                 }
             }
             csv.append("\n");
         }
+
         return csv.toString().getBytes();
     }
 
@@ -153,145 +378,290 @@ public class ResultService {
         try (CSVReader reader = new CSVReaderBuilder(new InputStreamReader(inputStream)).build()) {
             List<String[]> allRows = reader.readAll();
             if (allRows.isEmpty()) {
-                logs.add("❌ Empty CSV file");
+                logs.add("âŒ Empty CSV file");
                 return logs;
             }
 
-            // Parse Headers from Row 0
             String[] headers = allRows.get(0);
-            List<Integer> subjectColIndices = new ArrayList<>();
-            List<String> subjectCodes = new ArrayList<>();
-
-            // Identify Subject Columns (Everything after index 4: Email, RegNo, Name, Dept,
-            // Sem)
+            List<Map<String, Object>> subjectColumns = new ArrayList<>();
             for (int i = 5; i < headers.length; i++) {
                 String header = headers[i].trim();
-                // Clean header if it has suffix like _Marks
-                String code = header.replaceAll("(?i)_marks", "").trim();
+                if (header.isEmpty() || header.startsWith("SubjectCode")) {
+                    continue;
+                }
 
-                if (!code.isEmpty() && !code.startsWith("SubjectCode")) { // Ignore placeholders if left untouched
-                    subjectColIndices.add(i);
-                    subjectCodes.add(code);
+                String normalized = header.replaceAll("(?i)_marks", "").trim();
+                if (normalized.endsWith("_Internal")) {
+                    String code = normalized.substring(0, normalized.length() - "_Internal".length()).trim();
+                    subjectColumns.add(Map.of("code", code, "index", i, "type", "INTERNAL"));
+                } else if (normalized.endsWith("_Semester")) {
+                    String code = normalized.substring(0, normalized.length() - "_Semester".length()).trim();
+                    subjectColumns.add(Map.of("code", code, "index", i, "type", "SEMESTER"));
+                } else {
+                    subjectColumns.add(Map.of("code", normalized, "index", i, "type", "LEGACY"));
                 }
             }
 
-            logs.add("ℹ️ Detected Subjects: " + String.join(", ", subjectCodes));
-
-            // Process Data Rows (Start from Row 1)
             for (int i = 1; i < allRows.size(); i++) {
                 String[] line = allRows.get(i);
-                if (line.length < 1)
+                if (line.length < 1) {
                     continue;
+                }
 
                 String email = line[0].trim();
-                if (email.isEmpty())
+                if (email.isEmpty()) {
                     continue;
+                }
 
                 Optional<User> studentOpt = userRepository.findByEmail(email.toLowerCase());
                 if (studentOpt.isEmpty()) {
-                    logs.add("❌ Row " + (i + 1) + ": Student not found (" + email + ")");
+                    logs.add("âŒ Row " + (i + 1) + ": Student not found (" + email + ")");
                     continue;
                 }
                 User student = studentOpt.get();
 
+                Integer rowSemester = line.length > 4 && !line[4].trim().isEmpty()
+                        ? Integer.parseInt(line[4].trim())
+                        : (student.getStudentDetails() != null ? student.getStudentDetails().getSemester() : null);
+                if (rowSemester == null) {
+                    logs.add("âŒ Row " + (i + 1) + ": Semester not found for " + email);
+                    continue;
+                }
+
                 double totalGradePoints = 0;
                 int totalCredits = 0;
-                int totalMarks = 0;
                 boolean hasResults = false;
 
-                // Process each subject for this student
-                for (int j = 0; j < subjectColIndices.size(); j++) {
-                    int colIdx = subjectColIndices.get(j);
-                    String subCode = subjectCodes.get(j);
+                Map<String, Double> internalByCode = new HashMap<>();
+                Map<String, Double> semesterByCode = new HashMap<>();
 
-                    if (colIdx >= line.length)
+                for (Map<String, Object> column : subjectColumns) {
+                    String code = String.valueOf(column.get("code"));
+                    int colIdx = (Integer) column.get("index");
+                    String type = String.valueOf(column.get("type"));
+                    if (colIdx >= line.length) {
                         continue;
+                    }
 
-                    String markStr = line[colIdx].trim();
-                    if (markStr.isEmpty())
+                    String rawValue = line[colIdx].trim();
+                    if (rawValue.isEmpty() || "NA".equalsIgnoreCase(rawValue)) {
                         continue;
+                    }
 
                     try {
-                        int marks = Integer.parseInt(markStr);
-                        hasResults = true;
-                        totalMarks += marks;
-
-                        // Fetch Course Credits (Default to 3 if dynamic/unknown)
-                        int credits = 3;
-                        Optional<Course> courseOpt = courseRepository.findByCode(subCode);
-                        if (courseOpt.isPresent()) {
-                            credits = courseOpt.get().getCredits() != null ? courseOpt.get().getCredits() : 3;
-                        }
-
-                        // Calculate Grade
-                        String grade = calculateGrade(marks);
-                        int points = getGradePoints(grade);
-
-                        // SGPA Logic
-                        if (!grade.equals("RA") && !grade.equals("AB")) {
-                            totalGradePoints += (points * credits);
-                            totalCredits += credits;
+                        double value = Double.parseDouble(rawValue);
+                        if ("INTERNAL".equals(type)) {
+                            internalByCode.put(code, value);
                         } else {
-                            // Re-appear: add credits to denominator, points are 0
-                            totalCredits += credits;
+                            semesterByCode.put(code, value);
                         }
-
-                        // Save Result
-                        Result result = Result.builder()
-                                .student(student)
-                                .subjectCode(subCode)
-                                .subjectName(courseOpt.map(Course::getName).orElse(subCode))
-                                .grade(grade)
-                                .credits(credits)
-                                .semester(student.getStudentDetails().getSemester())
-                                .examType("SEMESTER")
-                                .publishedDate(LocalDate.now())
-                                .build();
-                        resultRepository.save(result);
-
                     } catch (NumberFormatException e) {
-                        logs.add("⚠️ Invalid mark for " + email + " in " + subCode);
+                        logs.add("âš ï¸ Invalid mark for " + email + " in " + code + " (" + type + ")");
                     }
                 }
 
-                    // Update SGPA for Student
-                    if (hasResults && totalCredits > 0) {
-                        double sgpa = totalGradePoints / totalCredits;
-                        sgpa = Math.round(sgpa * 100.0) / 100.0;
-                        student.getStudentDetails().setSgpa(sgpa);
-                        student.getStudentDetails().setGpa(sgpa);
-                        userRepository.save(student);
-                        logs.add("✅ " + email + ": Updated Results & SGPA: " + sgpa);
+                for (Map.Entry<String, Double> subjectEntry : semesterByCode.entrySet()) {
+                    String subjectCode = subjectEntry.getKey();
+                    double semesterMarks = subjectEntry.getValue();
+                    Optional<Course> scheduledCourse = courseRepository.findByCode(subjectCode);
+                    String scheduledCourseName = scheduledCourse.map(Course::getName).orElse(subjectCode);
+                    if (!hasSemesterExamScheduled(subjectCode, scheduledCourseName)) {
+                        logs.add("⚠️ Skipped unscheduled course " + subjectCode + " for " + email + ".");
+                        continue;
+                    }
+                    double internalMarks = internalByCode.containsKey(subjectCode)
+                            ? internalByCode.get(subjectCode)
+                            : resolveInternalMarksFromExisting(student, subjectCode, rowSemester);
 
-                        try {
-                            notificationService.createNotification(
-                                    student.getFirebaseUid(),
-                                    "RESULT_PUBLISHED",
-                                    "Semester Results Published",
-                                    "The Controller of Examinations has officially released your latest semester results.",
-                                    "/student/results"
-                            );
-                        } catch (Exception ignored) {}
+                    Result saved = saveOrUpdateResult(student, subjectCode, rowSemester, internalMarks, semesterMarks);
+                    hasResults = true;
+                    totalCredits += saved.getCredits() != null ? saved.getCredits() : 0;
+                    totalGradePoints += (double) (saved.getGradePoints() != null ? saved.getGradePoints() : 0)
+                            * (saved.getCredits() != null ? saved.getCredits() : 0);
+                }
+
+                if (hasResults && totalCredits > 0 && student.getStudentDetails() != null) {
+                    double sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
+                    student.getStudentDetails().setSgpa(sgpa);
+                    student.getStudentDetails().setGpa(sgpa);
+                    userRepository.save(student);
+                    logs.add("âœ… " + email + ": Updated Results & SGPA: " + sgpa);
+
+                    try {
+                        notificationService.createNotification(
+                                student.getFirebaseUid(),
+                                "RESULT_PUBLISHED",
+                                "Semester Results Published",
+                                "The Controller of Examinations has officially released your latest semester results.",
+                                "/student/results"
+                        );
+                    } catch (Exception ignored) {
                     }
                 }
+            }
         } catch (Exception e) {
-            logs.add("❗ File Error: " + e.getMessage());
+            logs.add("â— File Error: " + e.getMessage());
             e.printStackTrace();
+        }
+
+        return logs;
+    }
+
+    public List<Map<String, Object>> getEntrySheet(String dept, Integer sem) {
+        List<User> students = getStudentsForDepartmentAndSemester(dept, sem);
+        List<Map<String, Object>> response = new ArrayList<>();
+
+        for (User student : students) {
+            List<Section> sections = getStudentSemesterSections(student, dept, sem);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("studentId", student.getId());
+            row.put("studentUid", student.getFirebaseUid());
+            row.put("studentEmail", student.getEmail());
+            row.put("registerNumber", student.getStudentDetails() != null ? student.getStudentDetails().getRollNumber() : "");
+            row.put("studentName", student.getFullName());
+            row.put("department", student.getStudentDetails() != null
+                    ? (student.getStudentDetails().getDepartment() != null
+                    ? student.getStudentDetails().getDepartment()
+                    : student.getStudentDetails().getBranchName())
+                    : dept);
+            row.put("semester", student.getStudentDetails() != null && student.getStudentDetails().getSemester() != null
+                    ? student.getStudentDetails().getSemester()
+                    : sem);
+
+            List<Map<String, Object>> subjects = new ArrayList<>();
+            double weightedPoints = 0;
+            int totalCredits = 0;
+
+            for (Section section : sections) {
+                String subjectCode = section.getCourse().getCode();
+                double internalMarks = resolveInternalMarks(student, section, sem);
+                Result existing = resultRepository.findByStudentAndSemesterAndSubjectCode(student, sem, subjectCode).orElse(null);
+                double semesterMarks = existing != null && existing.getSemesterMarks() != null ? existing.getSemesterMarks() : 0.0;
+                double totalMarks = internalMarks + semesterMarks;
+                double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
+                String grade = calculateGrade(finalPercentage);
+                int gradePoints = getGradePoints(grade);
+                int credits = section.getCourse().getCredits() != null ? section.getCourse().getCredits() : 3;
+
+                totalCredits += credits;
+                weightedPoints += (double) gradePoints * credits;
+
+                Map<String, Object> subject = new LinkedHashMap<>();
+                subject.put("sectionId", section.getId());
+                subject.put("subjectCode", subjectCode);
+                subject.put("subjectName", section.getCourse().getName());
+                subject.put("credits", credits);
+                subject.put("internalMarks", Math.round(internalMarks * 100.0) / 100.0);
+                subject.put("semesterMarks", Math.round(semesterMarks * 100.0) / 100.0);
+                subject.put("totalMarks", Math.round(totalMarks * 100.0) / 100.0);
+                subject.put("finalPercentage", Math.round(finalPercentage * 100.0) / 100.0);
+                subject.put("grade", grade);
+                subjects.add(subject);
+            }
+
+            if (subjects.isEmpty()) {
+                subjects = buildFallbackSubjectsFromInternalMarks(student, sem);
+                for (Map<String, Object> subject : subjects) {
+                    int credits = ((Number) subject.get("credits")).intValue();
+                    totalCredits += credits;
+                    weightedPoints += getGradePoints(String.valueOf(subject.get("grade"))) * credits;
+                }
+            }
+
+            row.put("subjects", subjects);
+            row.put("sgpa", totalCredits > 0 ? Math.round((weightedPoints / totalCredits) * 100.0) / 100.0 : 0.0);
+            response.add(row);
+        }
+
+        return response;
+    }
+
+    @Transactional
+    public List<String> publishManualResults(String dept, Integer sem, List<Map<String, Object>> studentsPayload) {
+        List<String> logs = new ArrayList<>();
+
+        for (Map<String, Object> studentRow : studentsPayload) {
+            String studentUid = String.valueOf(studentRow.get("studentUid"));
+            if (studentUid == null || studentUid.isBlank()) {
+                continue;
+            }
+
+            User student = userRepository.findByFirebaseUid(studentUid)
+                    .orElseThrow(() -> new RuntimeException("Student not found: " + studentUid));
+
+            Object subjectsObject = studentRow.get("subjects");
+            if (!(subjectsObject instanceof List<?> subjectsList)) {
+                continue;
+            }
+
+            double totalGradePoints = 0;
+            int totalCredits = 0;
+            boolean hasResults = false;
+
+            for (Object subjectObject : subjectsList) {
+                if (!(subjectObject instanceof Map<?, ?> rawMap)) {
+                    continue;
+                }
+
+                String subjectCode = String.valueOf(rawMap.get("subjectCode"));
+                if (subjectCode == null || subjectCode.isBlank()) {
+                    continue;
+                }
+
+                double internalMarks = rawMap.get("internalMarks") == null ? 0.0
+                        : Double.parseDouble(String.valueOf(rawMap.get("internalMarks")));
+                double semesterMarks = rawMap.get("semesterMarks") == null ? 0.0
+                        : Double.parseDouble(String.valueOf(rawMap.get("semesterMarks")));
+
+                Result saved = saveOrUpdateResult(student, subjectCode, sem, internalMarks, semesterMarks);
+                totalCredits += saved.getCredits() != null ? saved.getCredits() : 0;
+                totalGradePoints += (double) (saved.getGradePoints() != null ? saved.getGradePoints() : 0)
+                        * (saved.getCredits() != null ? saved.getCredits() : 0);
+                hasResults = true;
+            }
+
+            if (hasResults && totalCredits > 0 && student.getStudentDetails() != null) {
+                double sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
+                student.getStudentDetails().setSgpa(sgpa);
+                student.getStudentDetails().setGpa(sgpa);
+                userRepository.save(student);
+                logs.add("âœ… " + student.getEmail() + ": Published results with SGPA " + sgpa);
+
+                try {
+                    notificationService.createNotification(
+                            student.getFirebaseUid(),
+                            "RESULT_PUBLISHED",
+                            "Semester Results Published",
+                            "The Controller of Examinations has officially released your latest semester results.",
+                            "/student/results"
+                    );
+                } catch (Exception ignored) {
+                }
+            }
+        }
+
+        if (logs.isEmpty()) {
+            logs.add("âš ï¸ No student results were published for " + dept + " semester " + sem + ".");
         }
         return logs;
     }
 
-    private String calculateGrade(int marks) {
-        if (marks >= 91)
+    private String calculateGrade(double marks) {
+        if (marks >= 91) {
             return "O";
-        if (marks >= 81)
+        }
+        if (marks >= 81) {
             return "A+";
-        if (marks >= 71)
+        }
+        if (marks >= 71) {
             return "A";
-        if (marks >= 61)
+        }
+        if (marks >= 61) {
             return "B+";
-        if (marks >= 50)
+        }
+        if (marks >= 50) {
             return "B";
+        }
         return "RA";
     }
 
@@ -323,12 +693,8 @@ public class ResultService {
     }
 
     public List<Map<String, Object>> getSGPAHistory(String uid) {
-        // Find user by UID (handle specific logic if needed for role)
-        // Using findByFirebaseUid assuming it exists in repo or custom query
-        // Re-using exiting user lookup logic pattern
         Optional<User> userOpt = userRepository.findByFirebaseUid(uid);
         if (userOpt.isEmpty()) {
-            // Fallback to ID if UID lookup fails or is actually ID
             try {
                 userOpt = userRepository.findById(Long.parseLong(uid));
             } catch (NumberFormatException e) {
@@ -336,19 +702,17 @@ public class ResultService {
             }
         }
 
-        if (userOpt.isEmpty())
+        if (userOpt.isEmpty()) {
             return new ArrayList<>();
+        }
         User student = userOpt.get();
 
         List<Result> allResults = resultRepository.findByStudent(student);
-
-        // Group by Semester
         Map<Integer, List<Result>> resultsBySemester = allResults.stream()
                 .filter(r -> r.getSemester() != null)
                 .collect(Collectors.groupingBy(Result::getSemester, TreeMap::new, Collectors.toList()));
 
         List<Map<String, Object>> history = new ArrayList<>();
-
         for (Map.Entry<Integer, List<Result>> entry : resultsBySemester.entrySet()) {
             Integer semester = entry.getKey();
             List<Result> semesterResults = entry.getValue();
@@ -356,31 +720,21 @@ public class ResultService {
             double totalGradePoints = 0;
             int totalCredits = 0;
 
-            for (Result r : semesterResults) {
-                int points = getGradePoints(r.getGrade());
-                int credits = r.getCredits() != null ? r.getCredits() : 0;
-
-                if (!"RA".equals(r.getGrade()) && !"AB".equals(r.getGrade())) {
-                    totalGradePoints += (points * credits);
-                    totalCredits += credits;
-                } else {
-                    // For arrears, we count credits but 0 points?
-                    // Standard logic: SGPA is usually for passed subjects or includes failures as 0
-                    // points.
-                    // Using same logic as bulk upload:
-                    totalCredits += credits;
-                }
+            for (Result result : semesterResults) {
+                int points = result.getGradePoints() != null ? result.getGradePoints() : getGradePoints(result.getGrade());
+                int credits = result.getCredits() != null ? result.getCredits() : 0;
+                totalGradePoints += (double) points * credits;
+                totalCredits += credits;
             }
 
             double sgpa = 0.0;
             if (totalCredits > 0) {
-                sgpa = totalGradePoints / totalCredits;
-                sgpa = Math.round(sgpa * 100.0) / 100.0;
+                sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
             }
 
             Map<String, Object> semData = new HashMap<>();
             semData.put("semester", toRoman(semester));
-            semData.put("semNumber", semester); // for sorting if needed
+            semData.put("semNumber", semester);
             semData.put("sgpa", sgpa);
             history.add(semData);
         }

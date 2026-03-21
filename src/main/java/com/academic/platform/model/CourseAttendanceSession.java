@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Entity
 @Table(name = "course_attendance_sessions")
@@ -38,5 +39,29 @@ public class CourseAttendanceSession {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
+    }
+
+    @JsonProperty("sessionLabel")
+    public String getSessionLabel() {
+        if (schedule == null) {
+            return otp != null && "MANUAL".equalsIgnoreCase(otp) ? "Manual Session" : "OTP Session";
+        }
+
+        String slot = schedule.getSession() != null && !schedule.getSession().isBlank()
+                ? schedule.getSession().trim()
+                : "Scheduled";
+        String start = schedule.getStartTime() != null ? schedule.getStartTime().toString() : "--:--";
+        String end = schedule.getEndTime() != null ? schedule.getEndTime().toString() : "--:--";
+        return slot + " (" + start + " - " + end + ")";
+    }
+
+    @JsonProperty("venue")
+    public String getVenue() {
+        return schedule != null ? schedule.getLocation() : null;
+    }
+
+    @JsonProperty("courseDate")
+    public String getCourseDate() {
+        return schedule != null && schedule.getDate() != null ? schedule.getDate().toString() : null;
     }
 }

@@ -1,10 +1,14 @@
 package com.academic.platform.controller;
 
 import com.academic.platform.model.Role;
+import com.academic.platform.model.PlacementDriveApplication;
+import com.academic.platform.model.PlacementDrive;
 import com.academic.platform.model.PlacementProfile;
 import com.academic.platform.model.User;
+import com.academic.platform.repository.PlacementDriveRepository;
 import com.academic.platform.repository.PlacementProfileRepository;
 import com.academic.platform.repository.UserRepository;
+import com.academic.platform.service.PlacementDriveWorkflowService;
 import com.academic.platform.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +25,12 @@ public class PlacementProfileController {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PlacementDriveRepository driveRepository;
+
+    @Autowired
+    private PlacementDriveWorkflowService driveWorkflowService;
 
     @Autowired
     private SecurityUtils securityUtils;
@@ -43,9 +53,12 @@ public class PlacementProfileController {
             empty.put("placementStatus", "NOT_READY");
             empty.put("resumeReviewStatus", "PENDING");
             empty.put("resumeRemarks", "");
+            empty.put("availableDrives", buildStudentDrives(uid));
             return ResponseEntity.ok(empty);
         }
-        return ResponseEntity.ok(buildResponse(profile));
+        Map<String, Object> response = buildResponse(profile);
+        response.put("availableDrives", buildStudentDrives(uid));
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/student/{uid}/update")
@@ -96,7 +109,24 @@ public class PlacementProfileController {
         }
 
         PlacementProfile saved = profileRepo.save(profile);
-        return ResponseEntity.ok(buildResponse(saved));
+        Map<String, Object> response = buildResponse(saved);
+        response.put("availableDrives", buildStudentDrives(uid));
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/student/{uid}/drives")
+    public ResponseEntity<?> getStudentDrives(@PathVariable String uid) {
+        return ResponseEntity.ok(buildStudentDrives(uid));
+    }
+
+    @PutMapping("/student/{uid}/drives/{driveId}/apply")
+    public ResponseEntity<?> applyForDrive(@PathVariable String uid, @PathVariable Long driveId) {
+        String actorUid = securityUtils.getCurrentUserUid();
+        if (actorUid == null || !actorUid.equals(uid)) {
+            return ResponseEntity.status(403).body("Access denied.");
+        }
+        driveWorkflowService.applyForDrive(driveId, uid);
+        return ResponseEntity.ok(buildStudentDrives(uid));
     }
 
     private Map<String, Object> buildResponse(PlacementProfile p) {
@@ -117,6 +147,34 @@ public class PlacementProfileController {
         m.put("resumeRemarks", p.getResumeRemarks());
         m.put("updatedAt", p.getUpdatedAt());
         return m;
+    }
+
+    private List<Map<String, Object>> buildStudentDrives(String uid) {
+        Map<Long, PlacementDriveApplication> applicationByDrive = driveWorkflowService.getApplicationsForStudent(uid)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(app -> app.getDrive().getId(), app -> app, (left, right) -> left, LinkedHashMap::new));
+
+        return driveRepository.findAllByOrderByDriveDateDesc().stream()
+                .filter(drive -> applicationByDrive.containsKey(drive.getId()))
+                .map(drive -> {
+                    PlacementDriveApplication application = applicationByDrive.get(drive.getId());
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("id", drive.getId());
+                    row.put("companyName", drive.getCompany() != null ? drive.getCompany().getCompanyName() : "Unknown");
+                    row.put("roleTitle", drive.getRoleTitle());
+                    row.put("driveDate", drive.getDriveDate());
+                    row.put("location", drive.getLocation());
+                    row.put("eligibilityCriteria", drive.getEligibilityCriteria());
+                    row.put("description", drive.getDescription());
+                    row.put("status", drive.getStatus());
+                    row.put("applicationStatus", application.getStatus());
+                    row.put("appliedAt", application.getAppliedAt());
+                    row.put("coordinatorRemarks", application.getCoordinatorRemarks());
+                    row.put("reminderCount", application.getReminderCount());
+                    row.put("canApply", "ELIGIBLE".equals(application.getStatus()));
+                    return row;
+                })
+                .toList();
     }
 }
 

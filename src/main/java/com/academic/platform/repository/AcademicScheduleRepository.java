@@ -18,4 +18,6 @@ public interface AcademicScheduleRepository extends JpaRepository<AcademicSchedu
     List<AcademicSchedule> findByDateAndSubjectNameIgnoreCase(LocalDate date, String subjectName);
 
     List<AcademicSchedule> findByDate(LocalDate date);
+
+    List<AcademicSchedule> findByType(AcademicSchedule.ScheduleType type);
 }

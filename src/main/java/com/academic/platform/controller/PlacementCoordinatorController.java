@@ -2,6 +2,7 @@ package com.academic.platform.controller;
 
 import com.academic.platform.model.PlacementCompany;
 import com.academic.platform.model.PlacementDrive;
+import com.academic.platform.model.PlacementDriveApplication;
 import com.academic.platform.model.PlacementProfile;
 import com.academic.platform.model.Role;
 import com.academic.platform.model.User;
@@ -9,6 +10,7 @@ import com.academic.platform.repository.PlacementCompanyRepository;
 import com.academic.platform.repository.PlacementDriveRepository;
 import com.academic.platform.repository.PlacementProfileRepository;
 import com.academic.platform.repository.UserRepository;
+import com.academic.platform.service.PlacementDriveWorkflowService;
 import com.academic.platform.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +38,9 @@ public class PlacementCoordinatorController {
 
     @Autowired
     private SecurityUtils securityUtils;
+
+    @Autowired
+    private PlacementDriveWorkflowService driveWorkflowService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<?> getDashboard() {
@@ -234,7 +239,9 @@ public class PlacementCoordinatorController {
         }
         PlacementDrive drive = new PlacementDrive();
         applyDrivePayload(drive, body);
-        return ResponseEntity.ok(buildDriveResponse(driveRepository.save(drive)));
+        PlacementDrive saved = driveRepository.save(drive);
+        driveWorkflowService.syncDriveApplications(saved, Collections.emptySet());
+        return ResponseEntity.ok(buildDriveResponse(saved));
     }
 
     @PutMapping("/drives/{id}")
@@ -244,8 +251,28 @@ public class PlacementCoordinatorController {
         }
         PlacementDrive drive = driveRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Drive not found."));
+        Set<String> previousEligibleStudents = drive.getEligibleStudents().stream()
+                .map(User::getFirebaseUid)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         applyDrivePayload(drive, body);
-        return ResponseEntity.ok(buildDriveResponse(driveRepository.save(drive)));
+        PlacementDrive saved = driveRepository.save(drive);
+        driveWorkflowService.syncDriveApplications(saved, previousEligibleStudents);
+        return ResponseEntity.ok(buildDriveResponse(saved));
+    }
+
+    @PutMapping("/drives/{id}/applications/{uid}")
+    public ResponseEntity<?> reviewApplication(@PathVariable Long id,
+                                               @PathVariable String uid,
+                                               @RequestBody Map<String, Object> body) {
+        if (!isCoordinatorOrAdmin()) {
+            return ResponseEntity.status(403).body("Access denied.");
+        }
+        String status = String.valueOf(body.getOrDefault("status", "ELIGIBLE"));
+        String remarks = body.get("coordinatorRemarks") == null ? null : String.valueOf(body.get("coordinatorRemarks"));
+        driveWorkflowService.reviewApplication(id, uid, status, remarks);
+        PlacementDrive drive = driveRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Drive not found."));
+        return ResponseEntity.ok(buildDriveResponse(drive));
     }
 
     @DeleteMapping("/drives/{id}")
@@ -253,6 +280,7 @@ public class PlacementCoordinatorController {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
         }
+        driveWorkflowService.deleteApplicationsForDrive(id);
         driveRepository.deleteById(id);
         return ResponseEntity.ok().build();
     }
@@ -289,6 +317,8 @@ public class PlacementCoordinatorController {
     }
 
     private Map<String, Object> buildDriveResponse(PlacementDrive drive) {
+        List<PlacementDriveApplication> applications = driveWorkflowService.getApplicationsForDrive(drive.getId());
+
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("id", drive.getId());
         response.put("companyId", drive.getCompany() != null ? drive.getCompany().getId() : null);
@@ -302,10 +332,29 @@ public class PlacementCoordinatorController {
         response.put("eligibleStudents", drive.getEligibleStudents().stream().map(this::buildStudentMini).toList());
         response.put("appliedStudents", drive.getAppliedStudents().stream().map(this::buildStudentMini).toList());
         response.put("selectedStudents", drive.getSelectedStudents().stream().map(this::buildStudentMini).toList());
-        response.put("eligibleCount", drive.getEligibleStudents().size());
-        response.put("appliedCount", drive.getAppliedStudents().size());
-        response.put("selectedCount", drive.getSelectedStudents().size());
+        response.put("applications", applications.stream().map(this::buildApplicationResponse).toList());
+        response.put("eligibleCount", applications.stream().filter(app -> "ELIGIBLE".equals(app.getStatus())).count());
+        response.put("appliedCount", applications.stream().filter(app -> Set.of("APPLIED", "SHORTLISTED", "REJECTED").contains(app.getStatus())).count());
+        response.put("selectedCount", applications.stream().filter(app -> "SHORTLISTED".equals(app.getStatus())).count());
+        response.put("reminderPendingCount", applications.stream().filter(app -> "ELIGIBLE".equals(app.getStatus())).count());
         return response;
+    }
+
+    private Map<String, Object> buildApplicationResponse(PlacementDriveApplication application) {
+        Map<String, Object> row = buildStudentRow(
+                application.getStudent(),
+                profileRepository.findByStudentFirebaseUid(application.getStudent().getFirebaseUid())
+                        .orElse(PlacementProfile.builder().student(application.getStudent()).build())
+        );
+        row.put("applicationStatus", application.getStatus());
+        row.put("appliedAt", application.getAppliedAt());
+        row.put("reviewedAt", application.getReviewedAt());
+        row.put("coordinatorRemarks", defaultString(application.getCoordinatorRemarks()));
+        row.put("reminderCount", application.getReminderCount() == null ? 0 : application.getReminderCount());
+        row.put("mentorName", application.getStudent().getStudentDetails() != null && application.getStudent().getStudentDetails().getMentor() != null
+                ? defaultString(application.getStudent().getStudentDetails().getMentor().getFullName())
+                : "");
+        return row;
     }
 
     private Map<String, Object> buildStudentMini(User student) {

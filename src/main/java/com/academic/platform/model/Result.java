@@ -25,7 +25,11 @@ public class Result {
 
     private String subjectCode;
     private String subjectName;
+    private Double internalMarks;
+    private Double semesterMarks;
+    private Double totalMarks;
     private String grade; // e.g. "A+", "O", "9.5"
+    private Integer gradePoints;
     private Integer credits;
     private Integer semester;
 

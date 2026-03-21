@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/course-attendance")
@@ -20,30 +21,41 @@ public class CourseAttendanceController {
     private CourseAttendanceService attendanceService;
 
     @PostMapping("/sessions/generate/{sectionId}")
-    public ResponseEntity<CourseAttendanceSession> generateOtp(
+    public ResponseEntity<?> generateOtp(
             @PathVariable Long sectionId,
             @RequestParam String facultyUid) {
         try {
             return ResponseEntity.ok(attendanceService.generateOtp(sectionId, facultyUid));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 
     @PostMapping("/sessions/{sessionId}/deactivate")
-    public ResponseEntity<CourseAttendanceSession> deactivateSession(
+    public ResponseEntity<?> deactivateSession(
             @PathVariable Long sessionId,
             @RequestParam String facultyUid) {
         try {
             return ResponseEntity.ok(attendanceService.deactivateSession(sessionId, facultyUid));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 
     @GetMapping("/sessions/section/{sectionId}/active")
     public ResponseEntity<CourseAttendanceSession> getActiveSession(@PathVariable Long sectionId) {
         return ResponseEntity.ok(attendanceService.getActiveSession(sectionId));
+    }
+
+    @GetMapping("/sessions/section/{sectionId}/window-status")
+    public ResponseEntity<?> getAttendanceWindowStatus(
+            @PathVariable Long sectionId,
+            @RequestParam(required = false) String facultyUid) {
+        try {
+            return ResponseEntity.ok(attendanceService.getAttendanceWindowStatus(sectionId, facultyUid));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
 
     @GetMapping("/sessions/section/{sectionId}")
@@ -95,15 +107,27 @@ public class CourseAttendanceController {
         return ResponseEntity.ok(attendanceService.getStudentAttendanceForSection(sectionId, studentId));
     }
 
+    @GetMapping("/student/{studentUid}/timeline")
+    public ResponseEntity<List<Map<String, Object>>> getStudentAttendanceTimeline(@PathVariable String studentUid) {
+        return ResponseEntity.ok(attendanceService.getStudentAttendanceTimeline(studentUid));
+    }
+
+    @GetMapping("/mentor/{mentorUid}")
+    public ResponseEntity<List<Map<String, Object>>> getMentorAttendanceOverview(
+            @PathVariable String mentorUid,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(attendanceService.getMentorAttendanceOverview(mentorUid, date));
+    }
+
     @PostMapping("/sessions/bulk/{sectionId}")
-    public ResponseEntity<CourseAttendanceSession> saveBulkAttendance(
+    public ResponseEntity<?> saveBulkAttendance(
             @PathVariable Long sectionId,
             @RequestParam String facultyUid,
             @RequestBody List<java.util.Map<String, String>> requestData) {
         try {
             return ResponseEntity.ok(attendanceService.saveBulkAttendance(sectionId, facultyUid, requestData));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(null);
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 }

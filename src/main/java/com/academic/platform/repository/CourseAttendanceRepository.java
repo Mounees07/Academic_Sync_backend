@@ -7,7 +7,9 @@ import java.util.List;
 public interface CourseAttendanceRepository extends JpaRepository<CourseAttendance, Long> {
     List<CourseAttendance> findBySessionId(Long sessionId);
 
-    List<CourseAttendance> findByStudentFirebaseUidOrderByMarkedAtDesc(String firebaseUid);
+    @org.springframework.data.jpa.repository.Query("SELECT ca FROM CourseAttendance ca WHERE ca.student.firebaseUid = :firebaseUid ORDER BY ca.markedAt DESC")
+    List<CourseAttendance> findByStudentFirebaseUidOrderByMarkedAtDesc(
+            @org.springframework.data.repository.query.Param("firebaseUid") String firebaseUid);
 
     boolean existsBySessionIdAndStudentId(Long sessionId, Long studentId);
 

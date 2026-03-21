@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/results")
@@ -46,6 +47,32 @@ public class ResultController {
                 .header("Content-Disposition", "attachment; filename=result_entry_template.csv")
                 .header("Content-Type", "text/csv")
                 .body(csv);
+    }
+
+    @GetMapping("/entry-sheet")
+    public ResponseEntity<?> getEntrySheet(
+            @RequestParam String dept,
+            @RequestParam Integer sem) {
+        if ("false".equalsIgnoreCase(systemSettingService.getSetting("feature.result.enabled"))) {
+            return ResponseEntity.status(403).body("Result module disabled.");
+        }
+        return ResponseEntity.ok(resultService.getEntrySheet(dept, sem));
+    }
+
+    @PostMapping("/publish-manual")
+    public ResponseEntity<?> publishManual(@RequestBody Map<String, Object> body) {
+        if ("false".equalsIgnoreCase(systemSettingService.getSetting("feature.result.enabled"))) {
+            return ResponseEntity.status(403).body(List.of("Result module disabled."));
+        }
+        try {
+            String dept = String.valueOf(body.get("dept"));
+            Integer sem = Integer.parseInt(String.valueOf(body.get("sem")));
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> students = (List<Map<String, Object>>) body.get("students");
+            return ResponseEntity.ok(resultService.publishManualResults(dept, sem, students));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(List.of("Manual publish failed: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/student/{uid}")

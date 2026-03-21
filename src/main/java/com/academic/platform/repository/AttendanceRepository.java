@@ -13,7 +13,9 @@ import java.util.Optional;
 public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     Optional<Attendance> findByStudentAndDate(User student, LocalDate date);
 
-    List<Attendance> findByStudentFirebaseUidOrderByDateDesc(String studentUid);
+    @org.springframework.data.jpa.repository.Query("SELECT a FROM Attendance a WHERE a.student.firebaseUid = :studentUid ORDER BY a.date DESC, a.checkInTime DESC")
+    List<Attendance> findByStudentFirebaseUidOrderByDateDesc(
+            @org.springframework.data.repository.query.Param("studentUid") String studentUid);
 
     // Using a reliable query method name or custom query
     @org.springframework.data.jpa.repository.Query("SELECT a FROM Attendance a WHERE a.student.studentDetails.mentor.firebaseUid = :mentorUid AND a.date = :date")

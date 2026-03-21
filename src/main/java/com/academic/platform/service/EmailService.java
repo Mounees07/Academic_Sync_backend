@@ -222,6 +222,60 @@ public class EmailService {
     // ─── Faculty Leave Emails ────────────────────────────────────────────────────
 
     @Async("emailExecutor")
+    public void sendPlacementDriveInvitation(String to, String studentName, String companyName, String roleTitle,
+                                             String driveDate, String location, String criteria) {
+        String html = "<html><body style='font-family:Arial,sans-serif;color:#111827;'>"
+                + "<h2>New Placement Drive Opportunity</h2>"
+                + "<p>Dear <strong>" + studentName + "</strong>,</p>"
+                + "<p>You are eligible for the <strong>" + roleTitle + "</strong> drive at <strong>" + companyName + "</strong>.</p>"
+                + "<p><strong>Date:</strong> " + driveDate + "<br/>"
+                + "<strong>Location:</strong> " + location + "<br/>"
+                + "<strong>Eligibility:</strong> " + criteria + "</p>"
+                + "<p>Please review the requirements in your student placement page and apply if interested.</p>"
+                + "</body></html>";
+        sendHtmlEmail(to, "Placement Drive: " + companyName + " - " + roleTitle, html);
+    }
+
+    @Async("emailExecutor")
+    public void sendPlacementDriveReminder(String to, String studentName, String companyName, String roleTitle,
+                                           int reminderNumber) {
+        String html = "<html><body style='font-family:Arial,sans-serif;color:#111827;'>"
+                + "<h2>Placement Drive Reminder</h2>"
+                + "<p>Dear <strong>" + studentName + "</strong>,</p>"
+                + "<p>This is reminder " + reminderNumber + " for the <strong>" + roleTitle + "</strong> opportunity at <strong>"
+                + companyName + "</strong>.</p>"
+                + "<p>You are marked eligible but have not applied yet. Please check the drive details on your placement page.</p>"
+                + "</body></html>";
+        sendHtmlEmail(to, "Reminder " + reminderNumber + ": Placement Drive Pending Application", html);
+    }
+
+    @Async("emailExecutor")
+    public void sendMentorPlacementAlert(String to, String mentorName, String companyName, String roleTitle, String studentList) {
+        String html = "<html><body style='font-family:Arial,sans-serif;color:#111827;'>"
+                + "<h2>Mentor Alert: Students Have Not Applied</h2>"
+                + "<p>Dear <strong>" + mentorName + "</strong>,</p>"
+                + "<p>The following students are eligible for the <strong>" + roleTitle + "</strong> drive at <strong>"
+                + companyName + "</strong> but have still not applied after two reminders:</p>"
+                + "<p>" + studentList.replace("\n", "<br/>") + "</p>"
+                + "<p>Please follow up with them.</p>"
+                + "</body></html>";
+        sendHtmlEmail(to, "Mentor Alert: Placement Drive Non-Registration", html);
+    }
+
+    @Async("emailExecutor")
+    public void sendPlacementApplicationReview(String to, String studentName, String companyName, String roleTitle,
+                                               String status, String remarks) {
+        String html = "<html><body style='font-family:Arial,sans-serif;color:#111827;'>"
+                + "<h2>Placement Application Update</h2>"
+                + "<p>Dear <strong>" + studentName + "</strong>,</p>"
+                + "<p>Your application for <strong>" + roleTitle + "</strong> at <strong>" + companyName
+                + "</strong> has been marked as <strong>" + status + "</strong>.</p>"
+                + (remarks == null || remarks.isBlank() ? "" : "<p><strong>Coordinator notes:</strong> " + remarks + "</p>")
+                + "</body></html>";
+        sendHtmlEmail(to, "Placement Application Status: " + status, html);
+    }
+
+    @Async("emailExecutor")
     public void sendFacultyLeaveApproved(String email, String name, String from, String to, String remarks) {
         String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
                 + "<body style='font-family:sans-serif;background:#f3f4f6;margin:0;padding:0;'>"

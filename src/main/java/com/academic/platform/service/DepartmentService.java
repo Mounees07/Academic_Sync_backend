@@ -403,7 +403,7 @@ public class DepartmentService {
         private boolean isCoursePresent(String status) {
                 if (status == null) return false;
                 String s = status.trim().toUpperCase();
-                return s.equals("P") || s.equals("PRESENT");
+                return s.equals("P") || s.equals("PRESENT") || s.equals("L") || s.equals("LATE");
         }
 
         public Map<String, Object> getStudentAttendance(String department) {
