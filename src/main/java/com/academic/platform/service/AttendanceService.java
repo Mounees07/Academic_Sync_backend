@@ -10,11 +10,13 @@ import org.springframework.stereotype.Service;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class AttendanceService {
@@ -24,6 +26,9 @@ public class AttendanceService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private SystemSettingService systemSettingService;
 
     public Attendance markAttendance(String studentUid) {
         User student = userRepository.findByFirebaseUid(studentUid)
@@ -66,25 +71,19 @@ public class AttendanceService {
         User student = userRepository.findByFirebaseUid(studentUid)
                 .orElseThrow(() -> new RuntimeException("Student not found"));
 
-        List<Attendance> history = attendanceRepository.findByStudentFirebaseUidOrderByDateDesc(studentUid);
-        int presentDays = history.size(); // assuming each record is a "Present" day (checking status if needed)
-        // If status can be ABSENT, filter by PRESENT/LATE
-        presentDays = (int) history.stream()
-                .filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus()) || "LATE".equalsIgnoreCase(a.getStatus()))
-                .count();
-
-        // Determine Total Working Days
-        // Option 1: From the very first attendance record in the entire system
-        // (Semester Start heuristic)
-        Optional<Attendance> firstEver = attendanceRepository.findFirstByOrderByDateAsc();
-        LocalDate startDate = firstEver.map(Attendance::getDate).orElse(LocalDate.now());
-
-        // Option 2: Fallback to student's first attendance if system start is too far
-        // back?
-        // Ideally should be Fixed Date. But let's stick to system start heuristic.
-
         LocalDate today = LocalDate.now();
-        long workingDays = calculateWorkingDays(startDate, today);
+        LocalDate configuredSemesterStartDate = getSemesterStartDate();
+        final LocalDate semesterStartDate = (configuredSemesterStartDate == null || configuredSemesterStartDate.isAfter(today))
+                ? today
+                : configuredSemesterStartDate;
+        List<Attendance> history = attendanceRepository.findByStudentFirebaseUidOrderByDateDesc(studentUid);
+        Set<LocalDate> presentDates = history.stream()
+                .filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus()) || "LATE".equalsIgnoreCase(a.getStatus()))
+                .map(Attendance::getDate)
+                .filter(date -> date != null && !date.isBefore(semesterStartDate) && !date.isAfter(today))
+                .collect(Collectors.toSet());
+        int presentDays = presentDates.size();
+        long workingDays = calculateWorkingDays(semesterStartDate, today);
 
         if (workingDays == 0)
             workingDays = 1; // avoid div/0
@@ -97,8 +96,22 @@ public class AttendanceService {
         stats.put("present", presentDays);
         stats.put("total", workingDays);
         stats.put("percentage", Math.round(percentage * 10.0) / 10.0);
+        stats.put("semesterStartDate", semesterStartDate.toString());
 
         return stats;
+    }
+
+    private LocalDate getSemesterStartDate() {
+        String configuredDate = systemSettingService.getSetting("policy.attendance.semesterStartDate");
+        if (configuredDate == null || configuredDate.isBlank()) {
+            return null;
+        }
+
+        try {
+            return LocalDate.parse(configuredDate);
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
     }
 
     private long calculateWorkingDays(LocalDate start, LocalDate end) {

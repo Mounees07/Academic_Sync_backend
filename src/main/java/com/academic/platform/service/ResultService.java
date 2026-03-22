@@ -220,8 +220,92 @@ public class ResultService {
                 .orElse(0.0);
     }
 
-    private double calculateFinalPercentage(double internalMarks, double semesterMarks) {
-        return (internalMarks + semesterMarks) / 2.0;
+    private double round2(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    private double convertSemesterMarksToSixty(Double semesterMarks) {
+        if (semesterMarks == null) {
+            return 0.0;
+        }
+        return round2((semesterMarks / 100.0) * 60.0);
+    }
+
+    private double calculateFinalMarks(double internalMarks, Double semesterMarks) {
+        return round2(internalMarks + convertSemesterMarksToSixty(semesterMarks));
+    }
+
+    private String calculateResultStatus(Double semesterMarks, String grade) {
+        if (semesterMarks == null) {
+            return "AB";
+        }
+        return "RA".equals(grade) ? "RA" : "PASS";
+    }
+
+    private Result normalizeResult(Result result) {
+        if (result == null) {
+            return null;
+        }
+
+        double internalMarks = round2(result.getInternalMarks() != null ? result.getInternalMarks() : 0.0);
+        Double semesterMarks = result.getSemesterMarks() == null ? null : round2(result.getSemesterMarks());
+        double totalMarks = calculateFinalMarks(internalMarks, semesterMarks);
+        String grade = calculateGrade(totalMarks, semesterMarks);
+        int gradePoints = getGradePoints(grade);
+
+        result.setInternalMarks(internalMarks);
+        result.setSemesterMarks(semesterMarks);
+        result.setTotalMarks(totalMarks);
+        result.setGrade(grade);
+        result.setGradePoints(gradePoints);
+        return result;
+    }
+
+    private Double calculateSgpa(List<Result> results) {
+        if (results == null || results.isEmpty()) {
+            return null;
+        }
+
+        boolean hasArrear = false;
+        double totalGradePoints = 0;
+        int totalCredits = 0;
+
+        for (Result rawResult : results) {
+            Result result = normalizeResult(rawResult);
+            int credits = result.getCredits() != null ? result.getCredits() : 0;
+            if (credits <= 0) {
+                continue;
+            }
+
+            if ("RA".equals(result.getGrade())) {
+                hasArrear = true;
+                break;
+            }
+
+            if ("AB".equals(result.getGrade())) {
+                continue;
+            }
+
+            totalGradePoints += (double) (result.getGradePoints() != null ? result.getGradePoints() : 0) * credits;
+            totalCredits += credits;
+        }
+
+        if (hasArrear || totalCredits == 0) {
+            return null;
+        }
+
+        return round2(totalGradePoints / totalCredits);
+    }
+
+    private int calculateArrearCount(List<Result> results) {
+        if (results == null) {
+            return 0;
+        }
+
+        return (int) results.stream()
+                .map(this::normalizeResult)
+                .filter(result -> "RA".equals(result.getGrade()))
+                .count();
     }
 
     private List<Map<String, Object>> buildFallbackSubjectsFromInternalMarks(User student, Integer sem) {
@@ -229,11 +313,11 @@ public class ResultService {
                 .stream()
                 .filter(mark -> hasSemesterExamScheduled(mark.getSubjectCode(), mark.getSubjectName()))
                 .map(mark -> {
-                    double internalMarks = Math.round(mark.getPercentageScore() * 100.0) / 100.0;
-                    double semesterMarks = 0.0;
-                    double totalMarks = internalMarks;
-                    double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
-                    String grade = calculateGrade(finalPercentage);
+                    double internalMarks = round2(mark.getPercentageScore());
+                    Double semesterMarks = null;
+                    double totalMarks = calculateFinalMarks(internalMarks, semesterMarks);
+                    String grade = calculateGrade(totalMarks, semesterMarks);
+                    String resultStatus = calculateResultStatus(semesterMarks, grade);
 
                     Map<String, Object> subject = new LinkedHashMap<>();
                     subject.put("sectionId", mark.getSection() != null ? mark.getSection().getId() : null);
@@ -246,24 +330,25 @@ public class ResultService {
                             : 3);
                     subject.put("internalMarks", internalMarks);
                     subject.put("semesterMarks", semesterMarks);
-                    subject.put("totalMarks", Math.round(totalMarks * 100.0) / 100.0);
-                    subject.put("finalPercentage", Math.round(finalPercentage * 100.0) / 100.0);
+                    subject.put("convertedSemesterMarks", convertSemesterMarksToSixty(semesterMarks));
+                    subject.put("totalMarks", totalMarks);
+                    subject.put("finalPercentage", totalMarks);
                     subject.put("grade", grade);
+                    subject.put("resultStatus", resultStatus);
                     return subject;
                 })
                 .collect(Collectors.toList());
     }
 
-    private Result saveOrUpdateResult(User student, String subjectCode, Integer semester, double internalMarks, double semesterMarks) {
+    private Result saveOrUpdateResult(User student, String subjectCode, Integer semester, double internalMarks, Double semesterMarks) {
         Optional<Course> courseOpt = courseRepository.findByCode(subjectCode);
         int credits = courseOpt.map(Course::getCredits).orElse(3);
         if (credits <= 0) {
             credits = 3;
         }
 
-        double totalMarks = internalMarks + semesterMarks;
-        double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
-        String grade = calculateGrade(finalPercentage);
+        double totalMarks = calculateFinalMarks(internalMarks, semesterMarks);
+        String grade = calculateGrade(totalMarks, semesterMarks);
         int gradePoints = getGradePoints(grade);
 
         Result result = resultRepository.findByStudentAndSemesterAndSubjectCode(student, semester, subjectCode)
@@ -276,9 +361,9 @@ public class ResultService {
 
         result.setSubjectName(courseOpt.map(Course::getName).orElse(subjectCode));
         result.setCredits(credits);
-        result.setInternalMarks(Math.round(internalMarks * 100.0) / 100.0);
-        result.setSemesterMarks(Math.round(semesterMarks * 100.0) / 100.0);
-        result.setTotalMarks(Math.round(totalMarks * 100.0) / 100.0);
+        result.setInternalMarks(round2(internalMarks));
+        result.setSemesterMarks(semesterMarks == null ? null : round2(semesterMarks));
+        result.setTotalMarks(totalMarks);
         result.setGrade(grade);
         result.setGradePoints(gradePoints);
         result.setPublishedDate(LocalDate.now());
@@ -428,12 +513,11 @@ public class ResultService {
                     continue;
                 }
 
-                double totalGradePoints = 0;
-                int totalCredits = 0;
                 boolean hasResults = false;
 
                 Map<String, Double> internalByCode = new HashMap<>();
                 Map<String, Double> semesterByCode = new HashMap<>();
+                Map<String, Boolean> absentByCode = new HashMap<>();
 
                 for (Map<String, Object> column : subjectColumns) {
                     String code = String.valueOf(column.get("code"));
@@ -445,6 +529,11 @@ public class ResultService {
 
                     String rawValue = line[colIdx].trim();
                     if (rawValue.isEmpty() || "NA".equalsIgnoreCase(rawValue)) {
+                        continue;
+                    }
+
+                    if ("SEMESTER".equals(type) && ("AB".equalsIgnoreCase(rawValue) || "ABSENT".equalsIgnoreCase(rawValue))) {
+                        absentByCode.put(code, true);
                         continue;
                     }
 
@@ -460,9 +549,12 @@ public class ResultService {
                     }
                 }
 
-                for (Map.Entry<String, Double> subjectEntry : semesterByCode.entrySet()) {
-                    String subjectCode = subjectEntry.getKey();
-                    double semesterMarks = subjectEntry.getValue();
+                LinkedHashSet<String> attemptedSubjectCodes = new LinkedHashSet<>();
+                attemptedSubjectCodes.addAll(semesterByCode.keySet());
+                attemptedSubjectCodes.addAll(absentByCode.keySet());
+
+                for (String subjectCode : attemptedSubjectCodes) {
+                    Double semesterMarks = absentByCode.containsKey(subjectCode) ? null : semesterByCode.get(subjectCode);
                     Optional<Course> scheduledCourse = courseRepository.findByCode(subjectCode);
                     String scheduledCourseName = scheduledCourse.map(Course::getName).orElse(subjectCode);
                     if (!hasSemesterExamScheduled(subjectCode, scheduledCourseName)) {
@@ -473,19 +565,20 @@ public class ResultService {
                             ? internalByCode.get(subjectCode)
                             : resolveInternalMarksFromExisting(student, subjectCode, rowSemester);
 
-                    Result saved = saveOrUpdateResult(student, subjectCode, rowSemester, internalMarks, semesterMarks);
+                    saveOrUpdateResult(student, subjectCode, rowSemester, internalMarks, semesterMarks);
                     hasResults = true;
-                    totalCredits += saved.getCredits() != null ? saved.getCredits() : 0;
-                    totalGradePoints += (double) (saved.getGradePoints() != null ? saved.getGradePoints() : 0)
-                            * (saved.getCredits() != null ? saved.getCredits() : 0);
                 }
 
-                if (hasResults && totalCredits > 0 && student.getStudentDetails() != null) {
-                    double sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
+                if (hasResults && student.getStudentDetails() != null) {
+                    List<Result> semesterResults = resultRepository.findByStudent(student).stream()
+                            .filter(result -> rowSemester.equals(result.getSemester()))
+                            .collect(Collectors.toList());
+                    Double sgpa = calculateSgpa(semesterResults);
                     student.getStudentDetails().setSgpa(sgpa);
                     student.getStudentDetails().setGpa(sgpa);
+                    student.getStudentDetails().setArrearCount(calculateArrearCount(semesterResults));
                     userRepository.save(student);
-                    logs.add("âœ… " + email + ": Updated Results & SGPA: " + sgpa);
+                    logs.add("âœ… " + email + ": Updated Results & SGPA: " + (sgpa != null ? sgpa : "N/A"));
 
                     try {
                         notificationService.createNotification(
@@ -531,31 +624,38 @@ public class ResultService {
             List<Map<String, Object>> subjects = new ArrayList<>();
             double weightedPoints = 0;
             int totalCredits = 0;
+            boolean hasArrear = false;
 
             for (Section section : sections) {
                 String subjectCode = section.getCourse().getCode();
                 double internalMarks = resolveInternalMarks(student, section, sem);
                 Result existing = resultRepository.findByStudentAndSemesterAndSubjectCode(student, sem, subjectCode).orElse(null);
-                double semesterMarks = existing != null && existing.getSemesterMarks() != null ? existing.getSemesterMarks() : 0.0;
-                double totalMarks = internalMarks + semesterMarks;
-                double finalPercentage = calculateFinalPercentage(internalMarks, semesterMarks);
-                String grade = calculateGrade(finalPercentage);
+                Double semesterMarks = existing != null ? existing.getSemesterMarks() : null;
+                double totalMarks = calculateFinalMarks(internalMarks, semesterMarks);
+                String grade = calculateGrade(totalMarks, semesterMarks);
+                String resultStatus = calculateResultStatus(semesterMarks, grade);
                 int gradePoints = getGradePoints(grade);
                 int credits = section.getCourse().getCredits() != null ? section.getCourse().getCredits() : 3;
 
-                totalCredits += credits;
-                weightedPoints += (double) gradePoints * credits;
+                if ("RA".equals(grade)) {
+                    hasArrear = true;
+                } else if (!"AB".equals(grade)) {
+                    totalCredits += credits;
+                    weightedPoints += (double) gradePoints * credits;
+                }
 
                 Map<String, Object> subject = new LinkedHashMap<>();
                 subject.put("sectionId", section.getId());
                 subject.put("subjectCode", subjectCode);
                 subject.put("subjectName", section.getCourse().getName());
                 subject.put("credits", credits);
-                subject.put("internalMarks", Math.round(internalMarks * 100.0) / 100.0);
-                subject.put("semesterMarks", Math.round(semesterMarks * 100.0) / 100.0);
-                subject.put("totalMarks", Math.round(totalMarks * 100.0) / 100.0);
-                subject.put("finalPercentage", Math.round(finalPercentage * 100.0) / 100.0);
+                subject.put("internalMarks", round2(internalMarks));
+                subject.put("semesterMarks", semesterMarks == null ? null : round2(semesterMarks));
+                subject.put("convertedSemesterMarks", convertSemesterMarksToSixty(semesterMarks));
+                subject.put("totalMarks", totalMarks);
+                subject.put("finalPercentage", totalMarks);
                 subject.put("grade", grade);
+                subject.put("resultStatus", resultStatus);
                 subjects.add(subject);
             }
 
@@ -563,13 +663,18 @@ public class ResultService {
                 subjects = buildFallbackSubjectsFromInternalMarks(student, sem);
                 for (Map<String, Object> subject : subjects) {
                     int credits = ((Number) subject.get("credits")).intValue();
-                    totalCredits += credits;
-                    weightedPoints += getGradePoints(String.valueOf(subject.get("grade"))) * credits;
+                    String grade = String.valueOf(subject.get("grade"));
+                    if ("RA".equals(grade)) {
+                        hasArrear = true;
+                    } else if (!"AB".equals(grade)) {
+                        totalCredits += credits;
+                        weightedPoints += getGradePoints(grade) * credits;
+                    }
                 }
             }
 
             row.put("subjects", subjects);
-            row.put("sgpa", totalCredits > 0 ? Math.round((weightedPoints / totalCredits) * 100.0) / 100.0 : 0.0);
+            row.put("sgpa", hasArrear || totalCredits == 0 ? null : round2(weightedPoints / totalCredits));
             response.add(row);
         }
 
@@ -594,8 +699,6 @@ public class ResultService {
                 continue;
             }
 
-            double totalGradePoints = 0;
-            int totalCredits = 0;
             boolean hasResults = false;
 
             for (Object subjectObject : subjectsList) {
@@ -610,22 +713,25 @@ public class ResultService {
 
                 double internalMarks = rawMap.get("internalMarks") == null ? 0.0
                         : Double.parseDouble(String.valueOf(rawMap.get("internalMarks")));
-                double semesterMarks = rawMap.get("semesterMarks") == null ? 0.0
+                Double semesterMarks = rawMap.get("semesterMarks") == null
+                        || String.valueOf(rawMap.get("semesterMarks")).isBlank()
+                        ? null
                         : Double.parseDouble(String.valueOf(rawMap.get("semesterMarks")));
 
-                Result saved = saveOrUpdateResult(student, subjectCode, sem, internalMarks, semesterMarks);
-                totalCredits += saved.getCredits() != null ? saved.getCredits() : 0;
-                totalGradePoints += (double) (saved.getGradePoints() != null ? saved.getGradePoints() : 0)
-                        * (saved.getCredits() != null ? saved.getCredits() : 0);
+                saveOrUpdateResult(student, subjectCode, sem, internalMarks, semesterMarks);
                 hasResults = true;
             }
 
-            if (hasResults && totalCredits > 0 && student.getStudentDetails() != null) {
-                double sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
+            if (hasResults && student.getStudentDetails() != null) {
+                List<Result> semesterResults = resultRepository.findByStudent(student).stream()
+                        .filter(result -> sem.equals(result.getSemester()))
+                        .collect(Collectors.toList());
+                Double sgpa = calculateSgpa(semesterResults);
                 student.getStudentDetails().setSgpa(sgpa);
                 student.getStudentDetails().setGpa(sgpa);
+                student.getStudentDetails().setArrearCount(calculateArrearCount(semesterResults));
                 userRepository.save(student);
-                logs.add("âœ… " + student.getEmail() + ": Published results with SGPA " + sgpa);
+                logs.add("âœ… " + student.getEmail() + ": Published results with SGPA " + (sgpa != null ? sgpa : "N/A"));
 
                 try {
                     notificationService.createNotification(
@@ -646,7 +752,10 @@ public class ResultService {
         return logs;
     }
 
-    private String calculateGrade(double marks) {
+    private String calculateGrade(double marks, Double semesterMarks) {
+        if (semesterMarks == null) {
+            return "AB";
+        }
         if (marks >= 91) {
             return "O";
         }
@@ -685,7 +794,9 @@ public class ResultService {
     public List<Result> getResultsByStudent(String uid) {
         User student = userRepository.findByFirebaseUid(uid)
                 .orElseThrow(() -> new RuntimeException("Student not found"));
-        return resultRepository.findByStudent(student);
+        return resultRepository.findByStudent(student).stream()
+                .map(this::normalizeResult)
+                .collect(Collectors.toList());
     }
 
     public List<Result> getRecentPublishedResults() {
@@ -716,21 +827,7 @@ public class ResultService {
         for (Map.Entry<Integer, List<Result>> entry : resultsBySemester.entrySet()) {
             Integer semester = entry.getKey();
             List<Result> semesterResults = entry.getValue();
-
-            double totalGradePoints = 0;
-            int totalCredits = 0;
-
-            for (Result result : semesterResults) {
-                int points = result.getGradePoints() != null ? result.getGradePoints() : getGradePoints(result.getGrade());
-                int credits = result.getCredits() != null ? result.getCredits() : 0;
-                totalGradePoints += (double) points * credits;
-                totalCredits += credits;
-            }
-
-            double sgpa = 0.0;
-            if (totalCredits > 0) {
-                sgpa = Math.round((totalGradePoints / totalCredits) * 100.0) / 100.0;
-            }
+            Double sgpa = calculateSgpa(semesterResults);
 
             Map<String, Object> semData = new HashMap<>();
             semData.put("semester", toRoman(semester));

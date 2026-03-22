@@ -61,6 +61,7 @@ public class SystemSettingService {
         // --- 1. Policy & Governance ---
         ensureDefault("policy.attendance.threshold", "75", "Minimum attendance percentage");
         ensureDefault("policy.attendance.detain", "65", "Detain students below this attendance %");
+        ensureDefault("policy.attendance.semesterStartDate", "", "Attendance calculation start date");
         ensureDefault("policy.leave.maxDays", "10", "Maximum leave days per semester");
         ensureDefault("policy.password.minLength", "8", "Minimum password length");
         ensureDefault("policy.password.complexity", "strong", "Password strength requirement");

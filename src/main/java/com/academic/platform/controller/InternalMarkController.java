@@ -68,12 +68,18 @@ public class InternalMarkController {
         if (body.containsKey("subjectCode")) mark.setSubjectCode((String) body.get("subjectCode"));
         if (body.containsKey("assignmentMarks"))
             mark.setAssignmentMarks(Double.parseDouble(body.get("assignmentMarks").toString()));
+        if (body.containsKey("maxAssignment"))
+            mark.setMaxAssignment(Double.parseDouble(body.get("maxAssignment").toString()));
         if (body.containsKey("ut1Marks"))
             mark.setUt1Marks(Double.parseDouble(body.get("ut1Marks").toString()));
         if (body.containsKey("ut2Marks"))
             mark.setUt2Marks(Double.parseDouble(body.get("ut2Marks").toString()));
+        if (body.containsKey("maxUt"))
+            mark.setMaxUt(Double.parseDouble(body.get("maxUt").toString()));
         if (body.containsKey("modelMarks"))
             mark.setModelMarks(Double.parseDouble(body.get("modelMarks").toString()));
+        if (body.containsKey("maxModel"))
+            mark.setMaxModel(Double.parseDouble(body.get("maxModel").toString()));
         if (body.containsKey("semester"))
             mark.setSemester(Integer.parseInt(body.get("semester").toString()));
         if (body.containsKey("academicYear"))
