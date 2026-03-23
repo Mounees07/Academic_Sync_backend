@@ -1,15 +1,27 @@
 package com.academic.platform.service;
 
+import com.academic.platform.model.CollegeExpense;
+import com.academic.platform.model.FeeRecord;
 import com.academic.platform.model.Role;
+import com.academic.platform.model.User;
 import com.academic.platform.repository.AttendanceRepository;
+import com.academic.platform.repository.CollegeExpenseRepository;
+import com.academic.platform.repository.FeeRecordRepository;
 import com.academic.platform.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,6 +32,12 @@ public class AdminService {
 
     @Autowired
     private AttendanceRepository attendanceRepository;
+
+    @Autowired
+    private FeeRecordRepository feeRecordRepository;
+
+    @Autowired
+    private CollegeExpenseRepository collegeExpenseRepository;
 
     public Map<String, Object> getDashboardStats() {
         Map<String, Object> stats = new HashMap<>();
@@ -39,13 +57,19 @@ public class AdminService {
         // is better.
         // We will try simple counts. If gender is null or mixed case, this might need
         // refinement.
-        long boys = userRepository.countByRoleAndGender(Role.STUDENT, "Male");
-        long girls = userRepository.countByRoleAndGender(Role.STUDENT, "Female");
+        List<String> studentGenders = userRepository.findByRole(Role.STUDENT).stream()
+                .map(User::getGender)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(gender -> !gender.isBlank())
+                .collect(Collectors.toList());
 
-        // Fallback or detailed check: if pure counts are 0, maybe gender is stored
-        // differently (e.g. M/F/male/female)
-        // For robustness, we could just fetch all students and stream count, but let's
-        // stick to repository for perf.
+        long boys = studentGenders.stream()
+                .filter(this::isMaleGender)
+                .count();
+        long girls = studentGenders.stream()
+                .filter(this::isFemaleGender)
+                .count();
 
         stats.put("studentGenderData", List.of(
                 Map.of("name", "Boys", "value", boys, "color", "#4D44B5"),
@@ -78,16 +102,82 @@ public class AdminService {
 
         stats.put("attendanceData", attendanceChart);
 
-        // 4. Earnings (Mock - as this module likely doesn't exist)
-        stats.put("earningsData", List.of(
-                Map.of("name", "Jun", "income", 400, "expense", 240),
-                Map.of("name", "Jul", "income", 300, "expense", 139),
-                Map.of("name", "Aug", "income", 500, "expense", 280),
-                Map.of("name", "Sep", "income", 200, "expense", 390),
-                Map.of("name", "Oct", "income", 278, "expense", 190),
-                Map.of("name", "Nov", "income", 189, "expense", 480),
-                Map.of("name", "Dec", "income", 239, "expense", 380)));
+        // 4. Earnings (real fee income vs recorded college expenses)
+        stats.put("earningsData", buildEarningsChartData());
 
         return stats;
+    }
+
+    private List<Map<String, Object>> buildEarningsChartData() {
+        YearMonth currentMonth = YearMonth.now();
+        YearMonth startMonth = currentMonth.minusMonths(6);
+
+        Map<YearMonth, Map<String, Object>> monthlyData = new LinkedHashMap<>();
+        for (YearMonth month = startMonth; !month.isAfter(currentMonth); month = month.plusMonths(1)) {
+            Map<String, Object> point = new HashMap<>();
+            point.put("name", month.getMonth().getDisplayName(TextStyle.SHORT, Locale.ENGLISH));
+            point.put("income", 0.0);
+            point.put("expense", 0.0);
+            monthlyData.put(month, point);
+        }
+
+        List<FeeRecord> feeRecords = feeRecordRepository.findAll();
+        for (FeeRecord feeRecord : feeRecords) {
+            if (feeRecord.getPaymentStatus() == null || !"PAID".equalsIgnoreCase(feeRecord.getPaymentStatus())) {
+                continue;
+            }
+
+            if (feeRecord.getPaymentDate() == null) {
+                continue;
+            }
+
+            YearMonth paymentMonth = YearMonth.from(feeRecord.getPaymentDate());
+            if (paymentMonth.isBefore(startMonth) || paymentMonth.isAfter(currentMonth)) {
+                continue;
+            }
+
+            Map<String, Object> point = monthlyData.get(paymentMonth);
+            double currentIncome = ((Number) point.get("income")).doubleValue();
+            double amount = feeRecord.getTotalAmount() != null ? feeRecord.getTotalAmount() : 0.0;
+            point.put("income", currentIncome + amount);
+        }
+
+        List<CollegeExpense> expenses = collegeExpenseRepository.findAllByOrderByExpenseDateDesc();
+        for (CollegeExpense expense : expenses) {
+            if (expense.getExpenseDate() == null) {
+                continue;
+            }
+
+            YearMonth expenseMonth = YearMonth.from(expense.getExpenseDate());
+            if (expenseMonth.isBefore(startMonth) || expenseMonth.isAfter(currentMonth)) {
+                continue;
+            }
+
+            Map<String, Object> point = monthlyData.get(expenseMonth);
+            double currentExpense = ((Number) point.get("expense")).doubleValue();
+            double amount = expense.getAmount() != null ? expense.getAmount() : 0.0;
+            point.put("expense", currentExpense + amount);
+        }
+
+        return monthlyData.entrySet().stream()
+                .sorted(Comparator.comparing(Map.Entry::getKey))
+                .map(Map.Entry::getValue)
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private boolean isMaleGender(String gender) {
+        String normalized = gender.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.equals("male")
+                || normalized.equals("m")
+                || normalized.equals("boy")
+                || normalized.equals("boys");
+    }
+
+    private boolean isFemaleGender(String gender) {
+        String normalized = gender.trim().toLowerCase(Locale.ENGLISH);
+        return normalized.equals("female")
+                || normalized.equals("f")
+                || normalized.equals("girl")
+                || normalized.equals("girls");
     }
 }
