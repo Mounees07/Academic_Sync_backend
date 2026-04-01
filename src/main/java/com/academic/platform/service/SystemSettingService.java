@@ -94,6 +94,7 @@ public class SystemSettingService {
         ensureDefault("security.api.rateLimit", "100", "Requests per minute");
         ensureDefault("security.login.maxAttempts", "5", "Max failed login attempts before lockout");
         ensureDefault("security.captcha.enabled", "false", "Enable CAPTCHA on login");
+        ensureDefault("security.singleSession.enabled", "false", "Restrict users to one active session at a time");
 
         // --- 6. Reporting & Analytics ---
         ensureDefault("report.kpi.attendanceAlert", "70", "Alert if attendance drops below %");
@@ -140,6 +141,10 @@ public class SystemSettingService {
         return Boolean.parseBoolean(getSetting("allowRegistration"));
     }
 
+    public boolean isSingleSessionEnabled() {
+        return Boolean.parseBoolean(getSetting("security.singleSession.enabled"));
+    }
+
     public void updateSettings(Map<String, String> updates, String adminUid, String adminEmail, String ip) {
         for (Map.Entry<String, String> entry : updates.entrySet()) {
             String key = entry.getKey();
@@ -180,6 +185,7 @@ public class SystemSettingService {
             // Whitelist safe settings for frontend consumption
             if (key.startsWith("feature.") ||
                     key.startsWith("policy.") ||
+                    key.startsWith("security.") ||
                     key.equals("siteName") ||
                     key.equals("allowRegistration") ||
                     key.equals("maintenanceMode") ||

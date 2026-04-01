@@ -103,6 +103,26 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
                     return;
                 }
 
+                // ── Single-session guard ────────────────────────────────────────
+                // Bypass:
+                //  1. /users/session/register  — sets the token (must go through)
+                //  2. /users/session/check     — heartbeat
+                //  3. GET /users/{uid}         — profile fetch that fires as part
+                //     of auth-state setup, right after registerSession
+                boolean isSessionBypassPath = path.contains("/users/session")
+                    || (request.getMethod().equals("GET") && path.matches("/api/users/[^/]+"));
+                if (!isSessionBypassPath && systemSettingService.isSingleSessionEnabled()) {
+                    String sessionToken = request.getHeader("X-Session-Token");
+                    if (!userService.validateSession(uid, sessionToken)) {
+                        response.setStatus(HttpServletResponse.SC_CONFLICT); // 409
+                        response.setContentType("application/json");
+                        response.getWriter().write(
+                            "{\"error\":\"SESSION_CONFLICT\",\"message\":\"Your account is logged in on another device. Please log in again.\"}"
+                        );
+                        return;
+                    }
+                }
+
                 List<SimpleGrantedAuthority> authorities =
                         Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role));
 

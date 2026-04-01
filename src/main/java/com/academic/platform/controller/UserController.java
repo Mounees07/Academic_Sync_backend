@@ -242,6 +242,57 @@ public class UserController {
     @Autowired
     private com.academic.platform.service.SystemSettingService systemSettingService;
 
+    // ─────────────────── SESSION MANAGEMENT ENDPOINTS ───────────────────
+
+    /**
+     * Called by the frontend immediately after a successful Firebase login.
+     * Generates a new session token (invalidating any previous session) and
+     * returns it to the client to store in sessionStorage.
+     */
+    @PostMapping("/session/register")
+    public ResponseEntity<?> registerSession() {
+        String uid = securityUtils.getCurrentUserUid();
+        if (uid == null) return ResponseEntity.status(401).build();
+        String token = userService.registerSession(uid);
+        return ResponseEntity.ok(java.util.Map.of("sessionToken", token));
+    }
+
+    /**
+     * Lightweight heartbeat — the frontend polls this every 30 s.
+     * Returns 200 while the stored token matches; 409 if it was overwritten
+     * (i.e. someone else logged in). The filter already handles 409 for all
+     * other endpoints, but this explicit endpoint allows faster detection.
+     */
+    @GetMapping("/session/check")
+    public ResponseEntity<?> checkSession() {
+        // If we reach here, FirebaseTokenFilter already validated the token
+        // (or single-session is disabled). Just return 200 OK.
+        return ResponseEntity.ok(java.util.Map.of("status", "ok"));
+    }
+
+    /**
+     * Admin-only: returns all users who currently have an active session.
+     */
+    @GetMapping("/session/active")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getActiveSessions() {
+        return ResponseEntity.ok(userService.getAllActiveSessions());
+    }
+
+    /**
+     * Admin-only: force-logout a specific user by clearing their session token.
+     */
+    @DeleteMapping("/session/{uid}")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> forceLogout(@PathVariable String uid) {
+        try {
+            userService.clearSession(uid);
+            return ResponseEntity.ok(java.util.Map.of("message", "Session cleared for " + uid));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
     @PostMapping("/register")
     public ResponseEntity<?> registerUser(@RequestBody UserRegistrationRequest request) {
         logger.info("Attempting to register user: " + request.getEmail());

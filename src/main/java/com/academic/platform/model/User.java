@@ -5,8 +5,9 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
-import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 
 @Entity
 @Table(name = "users", indexes = {
@@ -52,6 +53,15 @@ public class User {
     private StudentDetails studentDetails = new StudentDetails();
 
     private java.time.LocalDateTime createdAt;
+
+    // ── Single-session enforcement ──────────────────────────────────────────────
+    // Stores the active session token (UUID). When security.singleSession.enabled
+    // is true, any request carrying a different token is rejected with 409.
+    @JsonIgnore   // Never expose session token to clients
+    @Column(length = 64)
+    private String sessionToken;
+
+    private java.time.LocalDateTime sessionLoginAt;
 
     @PrePersist
     protected void onCreate() {

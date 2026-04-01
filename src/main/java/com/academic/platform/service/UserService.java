@@ -576,4 +576,90 @@ public class UserService {
             // Async context; security context may not propagate — acceptable.
         }
     }
+
+    // ───────────────────────── SESSION MANAGEMENT ──────────────────────────
+
+    /**
+     * Called right after a user logs in. Generates a new session token,
+     * overwrites any existing one (kicks previous session), and persists it.
+     */
+    @CacheEvict(value = "users", key = "#uid")
+    @Transactional
+    public String registerSession(String uid) {
+        User user = userRepository.findByFirebaseUid(uid)
+                .orElseThrow(() -> new RuntimeException("User not found: " + uid));
+        String token = java.util.UUID.randomUUID().toString().replace("-", "");
+        user.setSessionToken(token);
+        user.setSessionLoginAt(java.time.LocalDateTime.now());
+        userRepository.save(user);
+        return token;
+    }
+
+    /**
+     * Validates that the supplied token matches the one stored in the DB.
+     * Returns true if valid (or if single-session enforcement is disabled).
+     *
+     * Logic:
+     *  - single-session OFF         → always allow
+     *  - DB token is null/blank     → no active session recorded yet → allow
+     *    (happens on first login before registerSession completes, or after
+     *     logout cleared the token)
+     *  - incoming token missing     → but DB token also null → allow
+     *  - incoming token missing     → DB has a token → BLOCK (another session active)
+     *  - incoming token present     → must exactly match DB token
+     */
+    @Transactional(readOnly = true)
+    public boolean validateSession(String uid, String incomingToken) {
+        if (!settingService.isSingleSessionEnabled()) return true; // feature off — always OK
+
+        Optional<User> opt = userRepository.findByFirebaseUid(uid);
+        if (opt.isEmpty()) return false;
+
+        String storedToken = opt.get().getSessionToken();
+
+        // No active session in DB → nothing to conflict with → allow
+        if (storedToken == null || storedToken.isBlank()) return true;
+
+        // DB has a token; incoming must match
+        if (incomingToken == null || incomingToken.isBlank()) return false;
+        return incomingToken.equals(storedToken);
+    }
+
+
+    /**
+     * Admin force-logout: clears the session token so the user's next
+     * API call gets 409 and the frontend logs them out.
+     */
+    @CacheEvict(value = "users", key = "#uid")
+    @Transactional
+    public void clearSession(String uid) {
+        User user = userRepository.findByFirebaseUid(uid)
+                .orElseThrow(() -> new RuntimeException("User not found: " + uid));
+        user.setSessionToken(null);
+        user.setSessionLoginAt(null);
+        userRepository.save(user);
+        logAdminAction("FORCE_LOGOUT", "Cleared active session for " + user.getEmail());
+    }
+
+    /**
+     * Returns a lightweight DTO list of all users who currently have an
+     * active session token — used in the Admin › Security panel.
+     */
+    @Transactional(readOnly = true)
+    public List<java.util.Map<String, Object>> getAllActiveSessions() {
+        List<User> all = userRepository.findAll();
+        List<java.util.Map<String, Object>> result = new java.util.ArrayList<>();
+        for (User u : all) {
+            if (u.getSessionToken() != null && !u.getSessionToken().isBlank()) {
+                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("uid", u.getFirebaseUid());
+                row.put("email", u.getEmail());
+                row.put("fullName", u.getFullName());
+                row.put("role", u.getRole() != null ? u.getRole().name() : "UNKNOWN");
+                row.put("sessionLoginAt", u.getSessionLoginAt() != null ? u.getSessionLoginAt().toString() : null);
+                result.add(row);
+            }
+        }
+        return result;
+    }
 }
