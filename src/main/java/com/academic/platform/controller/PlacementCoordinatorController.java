@@ -275,6 +275,20 @@ public class PlacementCoordinatorController {
         return ResponseEntity.ok(buildDriveResponse(drive));
     }
 
+    @PutMapping("/drives/{id}/applications/{uid}/attendance")
+    public ResponseEntity<?> markAttendance(@PathVariable Long id,
+                                            @PathVariable String uid,
+                                            @RequestBody Map<String, Object> body) {
+        if (!isCoordinatorOrAdmin()) {
+            return ResponseEntity.status(403).body("Access denied.");
+        }
+        boolean attended = Boolean.parseBoolean(String.valueOf(body.getOrDefault("attended", false)));
+        driveWorkflowService.markAttendance(id, uid, attended);
+        PlacementDrive drive = driveRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Drive not found."));
+        return ResponseEntity.ok(buildDriveResponse(drive));
+    }
+
     @DeleteMapping("/drives/{id}")
     public ResponseEntity<?> deleteDrive(@PathVariable Long id) {
         if (!isCoordinatorOrAdmin()) {
@@ -349,6 +363,8 @@ public class PlacementCoordinatorController {
         row.put("applicationStatus", application.getStatus());
         row.put("appliedAt", application.getAppliedAt());
         row.put("reviewedAt", application.getReviewedAt());
+        row.put("attended", Boolean.TRUE.equals(application.getAttended()));
+        row.put("attendanceMarkedAt", application.getAttendanceMarkedAt());
         row.put("coordinatorRemarks", defaultString(application.getCoordinatorRemarks()));
         row.put("reminderCount", application.getReminderCount() == null ? 0 : application.getReminderCount());
         row.put("mentorName", application.getStudent().getStudentDetails() != null && application.getStudent().getStudentDetails().getMentor() != null

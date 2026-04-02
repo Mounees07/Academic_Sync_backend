@@ -62,6 +62,8 @@ public class User {
     private String sessionToken;
 
     private java.time.LocalDateTime sessionLoginAt;
+    private java.time.LocalDateTime sessionLastActivityAt;
+    private java.time.LocalDateTime sessionExpiresAt;
 
     @PrePersist
     protected void onCreate() {

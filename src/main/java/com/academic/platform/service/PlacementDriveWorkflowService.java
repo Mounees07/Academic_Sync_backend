@@ -162,6 +162,15 @@ public class PlacementDriveWorkflowService {
         return applicationRepository.save(application);
     }
 
+    public PlacementDriveApplication markAttendance(Long driveId, String studentUid, boolean attended) {
+        PlacementDriveApplication application = applicationRepository.findByDriveIdAndStudentFirebaseUid(driveId, studentUid)
+                .orElseThrow(() -> new RuntimeException("Application not found."));
+
+        application.setAttended(attended);
+        application.setAttendanceMarkedAt(attended ? LocalDateTime.now() : null);
+        return applicationRepository.save(application);
+    }
+
     public List<PlacementDriveApplication> getApplicationsForDrive(Long driveId) {
         return applicationRepository.findByDriveIdOrderByCreatedAtAsc(driveId);
     }

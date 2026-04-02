@@ -54,6 +54,12 @@ public class PlacementDriveApplication {
 
     private LocalDateTime reviewedAt;
 
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean attended = false;
+
+    private LocalDateTime attendanceMarkedAt;
+
     @Column(columnDefinition = "TEXT")
     private String coordinatorRemarks;
 
@@ -71,6 +77,9 @@ public class PlacementDriveApplication {
         }
         if (reminderCount == null) {
             reminderCount = 0;
+        }
+        if (attended == null) {
+            attended = false;
         }
     }
 

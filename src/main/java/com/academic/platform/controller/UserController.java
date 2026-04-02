@@ -253,8 +253,7 @@ public class UserController {
     public ResponseEntity<?> registerSession() {
         String uid = securityUtils.getCurrentUserUid();
         if (uid == null) return ResponseEntity.status(401).build();
-        String token = userService.registerSession(uid);
-        return ResponseEntity.ok(java.util.Map.of("sessionToken", token));
+        return ResponseEntity.ok(userService.registerSession(uid));
     }
 
     /**
@@ -264,10 +263,49 @@ public class UserController {
      * other endpoints, but this explicit endpoint allows faster detection.
      */
     @GetMapping("/session/check")
-    public ResponseEntity<?> checkSession() {
-        // If we reach here, FirebaseTokenFilter already validated the token
-        // (or single-session is disabled). Just return 200 OK.
-        return ResponseEntity.ok(java.util.Map.of("status", "ok"));
+    public ResponseEntity<?> checkSession(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+        String uid = securityUtils.getCurrentUserUid();
+        if (uid == null) return ResponseEntity.status(401).build();
+
+        var validation = userService.validateSession(uid, sessionToken, false);
+        if (!validation.valid()) {
+            org.springframework.http.HttpStatus status =
+                    "SESSION_EXPIRED".equals(validation.errorCode())
+                            ? org.springframework.http.HttpStatus.UNAUTHORIZED
+                            : org.springframework.http.HttpStatus.CONFLICT;
+            return ResponseEntity.status(status).body(java.util.Map.of(
+                    "error", validation.errorCode(),
+                    "message", validation.message()
+            ));
+        }
+
+        return ResponseEntity.ok(validation.sessionState());
+    }
+
+    @PostMapping("/session/refresh")
+    public ResponseEntity<?> refreshSession(@RequestHeader(value = "X-Session-Token", required = false) String sessionToken) {
+        String uid = securityUtils.getCurrentUserUid();
+        if (uid == null) return ResponseEntity.status(401).build();
+        try {
+            return ResponseEntity.ok(userService.refreshSession(uid, sessionToken));
+        } catch (RuntimeException ex) {
+            String errorCode = ex.getMessage();
+            org.springframework.http.HttpStatus status = "SESSION_EXPIRED".equals(errorCode)
+                    ? org.springframework.http.HttpStatus.UNAUTHORIZED
+                    : org.springframework.http.HttpStatus.CONFLICT;
+            String message = "SESSION_EXPIRED".equals(errorCode)
+                    ? "Session expired due to inactivity."
+                    : "Your account is logged in on another device. Please log in again.";
+            return ResponseEntity.status(status).body(java.util.Map.of("error", errorCode, "message", message));
+        }
+    }
+
+    @PostMapping("/session/logout")
+    public ResponseEntity<?> logoutSession() {
+        String uid = securityUtils.getCurrentUserUid();
+        if (uid == null) return ResponseEntity.status(401).build();
+        userService.clearSession(uid);
+        return ResponseEntity.ok(java.util.Map.of("message", "Session cleared"));
     }
 
     /**

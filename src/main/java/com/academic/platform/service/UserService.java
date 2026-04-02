@@ -24,9 +24,11 @@ import org.springframework.beans.BeanWrapper;
 import org.springframework.beans.BeanWrapperImpl;
 import java.util.HashSet;
 import java.util.Set;
+import java.time.LocalDateTime;
 
 @Service
 public class UserService {
+    private static final long SESSION_TIMEOUT_SECONDS = 300;
 
     @Autowired
     private UserRepository userRepository;
@@ -585,14 +587,17 @@ public class UserService {
      */
     @CacheEvict(value = "users", key = "#uid")
     @Transactional
-    public String registerSession(String uid) {
+    public SessionState registerSession(String uid) {
         User user = userRepository.findByFirebaseUid(uid)
                 .orElseThrow(() -> new RuntimeException("User not found: " + uid));
         String token = java.util.UUID.randomUUID().toString().replace("-", "");
+        LocalDateTime now = LocalDateTime.now();
         user.setSessionToken(token);
-        user.setSessionLoginAt(java.time.LocalDateTime.now());
+        user.setSessionLoginAt(now);
+        user.setSessionLastActivityAt(now);
+        user.setSessionExpiresAt(now.plusSeconds(SESSION_TIMEOUT_SECONDS));
         userRepository.save(user);
-        return token;
+        return toSessionState(user);
     }
 
     /**
@@ -609,20 +614,38 @@ public class UserService {
      *  - incoming token present     → must exactly match DB token
      */
     @Transactional(readOnly = true)
-    public boolean validateSession(String uid, String incomingToken) {
-        if (!settingService.isSingleSessionEnabled()) return true; // feature off — always OK
-
+    public SessionValidationResult validateSession(String uid, String incomingToken, boolean extendActivityWindow) {
         Optional<User> opt = userRepository.findByFirebaseUid(uid);
-        if (opt.isEmpty()) return false;
+        if (opt.isEmpty()) {
+            return SessionValidationResult.invalid("SESSION_INVALID", "Active session not found.");
+        }
 
-        String storedToken = opt.get().getSessionToken();
+        User user = opt.get();
+        String storedToken = user.getSessionToken();
 
-        // No active session in DB → nothing to conflict with → allow
-        if (storedToken == null || storedToken.isBlank()) return true;
+        if (storedToken == null || storedToken.isBlank()) {
+            return SessionValidationResult.invalid("SESSION_INVALID", "Session is not active.");
+        }
 
-        // DB has a token; incoming must match
-        if (incomingToken == null || incomingToken.isBlank()) return false;
-        return incomingToken.equals(storedToken);
+        if (incomingToken == null || incomingToken.isBlank() || !incomingToken.equals(storedToken)) {
+            return SessionValidationResult.invalid("SESSION_CONFLICT", "Your account is logged in on another device. Please log in again.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expiresAt = user.getSessionExpiresAt();
+        if (expiresAt != null && !expiresAt.isAfter(now)) {
+            clearSessionFields(user);
+            userRepository.save(user);
+            return SessionValidationResult.invalid("SESSION_EXPIRED", "Session expired due to inactivity.");
+        }
+
+        if (extendActivityWindow) {
+            user.setSessionLastActivityAt(now);
+            user.setSessionExpiresAt(now.plusSeconds(SESSION_TIMEOUT_SECONDS));
+            userRepository.save(user);
+        }
+
+        return SessionValidationResult.valid(toSessionState(user));
     }
 
 
@@ -635,8 +658,7 @@ public class UserService {
     public void clearSession(String uid) {
         User user = userRepository.findByFirebaseUid(uid)
                 .orElseThrow(() -> new RuntimeException("User not found: " + uid));
-        user.setSessionToken(null);
-        user.setSessionLoginAt(null);
+        clearSessionFields(user);
         userRepository.save(user);
         logAdminAction("FORCE_LOGOUT", "Cleared active session for " + user.getEmail());
     }
@@ -657,9 +679,67 @@ public class UserService {
                 row.put("fullName", u.getFullName());
                 row.put("role", u.getRole() != null ? u.getRole().name() : "UNKNOWN");
                 row.put("sessionLoginAt", u.getSessionLoginAt() != null ? u.getSessionLoginAt().toString() : null);
+                row.put("sessionLastActivityAt", u.getSessionLastActivityAt() != null ? u.getSessionLastActivityAt().toString() : null);
+                row.put("sessionExpiresAt", u.getSessionExpiresAt() != null ? u.getSessionExpiresAt().toString() : null);
                 result.add(row);
             }
         }
         return result;
+    }
+
+    @CacheEvict(value = "users", key = "#uid")
+    @Transactional
+    public SessionState refreshSession(String uid, String incomingToken) {
+        SessionValidationResult validation = validateSession(uid, incomingToken, false);
+        if (!validation.valid()) {
+            throw new RuntimeException(validation.errorCode());
+        }
+
+        User user = userRepository.findByFirebaseUid(uid)
+                .orElseThrow(() -> new RuntimeException("User not found: " + uid));
+        LocalDateTime now = LocalDateTime.now();
+        user.setSessionLastActivityAt(now);
+        user.setSessionExpiresAt(now.plusSeconds(SESSION_TIMEOUT_SECONDS));
+        userRepository.save(user);
+        return toSessionState(user);
+    }
+
+    private void clearSessionFields(User user) {
+        user.setSessionToken(null);
+        user.setSessionLoginAt(null);
+        user.setSessionLastActivityAt(null);
+        user.setSessionExpiresAt(null);
+    }
+
+    private SessionState toSessionState(User user) {
+        return new SessionState(
+                user.getSessionToken(),
+                user.getSessionLoginAt(),
+                user.getSessionLastActivityAt(),
+                user.getSessionExpiresAt()
+        );
+    }
+
+    public record SessionState(
+            String sessionToken,
+            LocalDateTime loginAt,
+            LocalDateTime lastActivityAt,
+            LocalDateTime expiresAt
+    ) {
+    }
+
+    public record SessionValidationResult(
+            boolean valid,
+            String errorCode,
+            String message,
+            SessionState sessionState
+    ) {
+        public static SessionValidationResult valid(SessionState sessionState) {
+            return new SessionValidationResult(true, null, null, sessionState);
+        }
+
+        public static SessionValidationResult invalid(String errorCode, String message) {
+            return new SessionValidationResult(false, errorCode, message, null);
+        }
     }
 }

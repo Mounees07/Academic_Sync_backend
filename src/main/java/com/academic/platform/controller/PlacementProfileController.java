@@ -161,6 +161,7 @@ public class PlacementProfileController {
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("id", drive.getId());
                     row.put("companyName", drive.getCompany() != null ? drive.getCompany().getCompanyName() : "Unknown");
+                    row.put("salaryPackageLakh", drive.getCompany() != null ? drive.getCompany().getPackageOffered() : null);
                     row.put("roleTitle", drive.getRoleTitle());
                     row.put("driveDate", drive.getDriveDate());
                     row.put("location", drive.getLocation());
@@ -169,6 +170,9 @@ public class PlacementProfileController {
                     row.put("status", drive.getStatus());
                     row.put("applicationStatus", application.getStatus());
                     row.put("appliedAt", application.getAppliedAt());
+                    row.put("reviewedAt", application.getReviewedAt());
+                    row.put("attended", Boolean.TRUE.equals(application.getAttended()));
+                    row.put("attendanceMarkedAt", application.getAttendanceMarkedAt());
                     row.put("coordinatorRemarks", application.getCoordinatorRemarks());
                     row.put("reminderCount", application.getReminderCount());
                     row.put("canApply", "ELIGIBLE".equals(application.getStatus()));

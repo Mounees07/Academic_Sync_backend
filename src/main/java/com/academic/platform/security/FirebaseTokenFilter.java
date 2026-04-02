@@ -109,15 +109,21 @@ public class FirebaseTokenFilter extends OncePerRequestFilter {
                 //  2. /users/session/check     — heartbeat
                 //  3. GET /users/{uid}         — profile fetch that fires as part
                 //     of auth-state setup, right after registerSession
-                boolean isSessionBypassPath = path.contains("/users/session")
+                boolean isSessionBypassPath = path.contains("/users/session/register")
+                    || path.contains("/users/session/check")
+                    || path.contains("/users/session/refresh")
+                    || path.contains("/users/session/logout")
                     || (request.getMethod().equals("GET") && path.matches("/api/users/[^/]+"));
-                if (!isSessionBypassPath && systemSettingService.isSingleSessionEnabled()) {
+                if (!isSessionBypassPath) {
                     String sessionToken = request.getHeader("X-Session-Token");
-                    if (!userService.validateSession(uid, sessionToken)) {
-                        response.setStatus(HttpServletResponse.SC_CONFLICT); // 409
+                    var validation = userService.validateSession(uid, sessionToken, true);
+                    if (!validation.valid()) {
+                        response.setStatus("SESSION_EXPIRED".equals(validation.errorCode())
+                                ? HttpServletResponse.SC_UNAUTHORIZED
+                                : HttpServletResponse.SC_CONFLICT);
                         response.setContentType("application/json");
                         response.getWriter().write(
-                            "{\"error\":\"SESSION_CONFLICT\",\"message\":\"Your account is logged in on another device. Please log in again.\"}"
+                            "{\"error\":\"" + validation.errorCode() + "\",\"message\":\"" + validation.message() + "\"}"
                         );
                         return;
                     }
