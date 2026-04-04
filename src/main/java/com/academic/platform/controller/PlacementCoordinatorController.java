@@ -1,5 +1,7 @@
 package com.academic.platform.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.academic.platform.model.PlacementCompany;
 import com.academic.platform.model.PlacementDrive;
 import com.academic.platform.model.PlacementDriveApplication;
@@ -24,6 +26,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/placement/coordinator")
 public class PlacementCoordinatorController {
 
+    private static final TypeReference<List<Map<String, Object>>> LIST_OF_MAPS = new TypeReference<>() {};
+
     @Autowired
     private PlacementProfileRepository profileRepository;
 
@@ -41,6 +45,9 @@ public class PlacementCoordinatorController {
 
     @Autowired
     private PlacementDriveWorkflowService driveWorkflowService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @GetMapping("/dashboard")
     public ResponseEntity<?> getDashboard() {
@@ -98,6 +105,39 @@ public class PlacementCoordinatorController {
         return ResponseEntity.ok(buildStudentRows());
     }
 
+    @GetMapping("/assessments")
+    public ResponseEntity<?> getAssessments() {
+        if (!isCoordinatorOrAdmin()) {
+            return ResponseEntity.status(403).body("Access denied.");
+        }
+
+        List<Map<String, Object>> students = buildStudentRows();
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("studentCount", students.size());
+        summary.put("averageAssessmentScore", roundTwoDecimals(students.stream()
+                .mapToDouble(student -> toDouble(student.get("averageAssessmentScore")))
+                .average()
+                .orElse(0.0)));
+        summary.put("averageTrainingAttendance", roundTwoDecimals(students.stream()
+                .mapToDouble(student -> toDouble(student.get("averageAttendancePercent")))
+                .average()
+                .orElse(0.0)));
+        summary.put("averagePlacementRoundScore", roundTwoDecimals(students.stream()
+                .mapToDouble(student -> toDouble(student.get("averagePlacementRoundScore")))
+                .average()
+                .orElse(0.0)));
+        summary.put("studentsWithAssessments", students.stream()
+                .filter(student -> toInt(student.get("attendanceCount")) > 0
+                        || toInt(student.get("assessmentScoreCount")) > 0
+                        || toInt(student.get("placementRoundCount")) > 0)
+                .count());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("summary", summary);
+        response.put("students", students);
+        return ResponseEntity.ok(response);
+    }
+
     @PutMapping("/students/{uid}")
     public ResponseEntity<?> updateStudent(@PathVariable String uid, @RequestBody Map<String, Object> body) {
         if (!isCoordinatorOrAdmin()) {
@@ -138,6 +178,12 @@ public class PlacementCoordinatorController {
         }
         if (body.containsKey("preferredCompanies")) {
             profile.setPreferredCompanies(body.get("preferredCompanies") == null ? null : String.valueOf(body.get("preferredCompanies")));
+        }
+        if (body.containsKey("trainingAttendance") || body.containsKey("assessmentScores") || body.containsKey("activityScores")) {
+            profile.setActivityScoresJson(writeJson(mergeActivityEntries(body)));
+        }
+        if (body.containsKey("placementRounds")) {
+            profile.setPlacementRoundsJson(writeJson(sanitizePlacementRoundEntries(body.get("placementRounds"))));
         }
         if (student.getStudentDetails() != null && student.getStudentDetails().getCgpa() != null) {
             profile.setCgpaScore(student.getStudentDetails().getCgpa());
@@ -310,10 +356,24 @@ public class PlacementCoordinatorController {
         drive.setLocation(String.valueOf(body.getOrDefault("location", "")));
         drive.setEligibilityCriteria(String.valueOf(body.getOrDefault("eligibilityCriteria", "")));
         drive.setDescription(String.valueOf(body.getOrDefault("description", "")));
-        drive.setStatus(String.valueOf(body.getOrDefault("status", "PLANNED")).toUpperCase(Locale.ROOT));
-        drive.setEligibleStudents(resolveUsers(body.get("eligibleStudentUids")));
-        drive.setAppliedStudents(resolveUsers(body.get("appliedStudentUids")));
-        drive.setSelectedStudents(resolveUsers(body.get("selectedStudentUids")));
+        String status = String.valueOf(body.getOrDefault("status", "PLANNED")).toUpperCase(Locale.ROOT);
+        Set<User> eligibleStudents = resolveUsers(body.get("eligibleStudentUids"));
+        Set<User> appliedStudents = resolveUsers(body.get("appliedStudentUids"));
+        Set<User> selectedStudents = resolveUsers(body.get("selectedStudentUids"));
+
+        if ("COMPLETED".equals(status) && selectedStudents.isEmpty()) {
+            throw new RuntimeException("Select the placed students before marking the drive as completed.");
+        }
+
+        if (!selectedStudents.isEmpty()) {
+            appliedStudents.addAll(selectedStudents);
+            eligibleStudents.addAll(selectedStudents);
+        }
+
+        drive.setStatus(status);
+        drive.setEligibleStudents(eligibleStudents);
+        drive.setAppliedStudents(appliedStudents);
+        drive.setSelectedStudents(selectedStudents);
     }
 
     private Set<User> resolveUsers(Object rawValue) {
@@ -425,6 +485,24 @@ public class PlacementCoordinatorController {
         row.put("preferredRole", defaultString(profile.getPreferredRole()));
         row.put("preferredCompanies", defaultString(profile.getPreferredCompanies()));
         row.put("cgpaScore", profile.getCgpaScore() == null ? 0.0 : profile.getCgpaScore());
+
+        List<Map<String, Object>> activityScores = sanitizeActivityEntries(readJsonList(profile.getActivityScoresJson()));
+        List<Map<String, Object>> placementRounds = sanitizePlacementRoundEntries(readJsonList(profile.getPlacementRoundsJson()));
+        List<Map<String, Object>> trainingAttendance = filterActivityEntriesByCategory(activityScores, "TRAINING_ATTENDANCE");
+        List<Map<String, Object>> assessmentScores = filterAssessmentEntries(activityScores);
+
+        row.put("activityScores", activityScores);
+        row.put("trainingAttendance", trainingAttendance);
+        row.put("assessmentScores", assessmentScores);
+        row.put("placementRounds", placementRounds);
+        row.put("activityCount", activityScores.size());
+        row.put("attendanceCount", trainingAttendance.size());
+        row.put("assessmentScoreCount", assessmentScores.size());
+        row.put("placementRoundCount", placementRounds.size());
+        row.put("averageActivityScore", calculateAverageScore(assessmentScores));
+        row.put("averageAssessmentScore", calculateAverageScore(assessmentScores));
+        row.put("averageAttendancePercent", calculateAverageAttendance(trainingAttendance));
+        row.put("averagePlacementRoundScore", calculateAverageScore(placementRounds));
         return row;
     }
 
@@ -439,6 +517,185 @@ public class PlacementCoordinatorController {
 
     private String defaultString(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private List<Map<String, Object>> readJsonList(String json) {
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            return objectMapper.readValue(json, LIST_OF_MAPS);
+        } catch (Exception exception) {
+            return new ArrayList<>();
+        }
+    }
+
+    private String writeJson(List<Map<String, Object>> value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (Exception exception) {
+            throw new RuntimeException("Failed to save placement assessment details.", exception);
+        }
+    }
+
+    private List<Map<String, Object>> mergeActivityEntries(Map<String, Object> body) {
+        if (body.containsKey("trainingAttendance") || body.containsKey("assessmentScores")) {
+            List<Map<String, Object>> merged = new ArrayList<>();
+            merged.addAll(sanitizeActivityEntries(body.get("trainingAttendance"), "TRAINING_ATTENDANCE"));
+            merged.addAll(sanitizeActivityEntries(body.get("assessmentScores"), "TRAINING_ASSESSMENT"));
+            return merged;
+        }
+        return sanitizeActivityEntries(body.get("activityScores"));
+    }
+
+    private List<Map<String, Object>> sanitizeActivityEntries(Object rawValue) {
+        return sanitizeActivityEntries(rawValue, null);
+    }
+
+    private List<Map<String, Object>> sanitizeActivityEntries(Object rawValue, String forcedCategory) {
+        if (!(rawValue instanceof List<?> items)) {
+            return new ArrayList<>();
+        }
+
+        List<Map<String, Object>> sanitized = new ArrayList<>();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                continue;
+            }
+            String name = defaultString(asString(rawMap.get("name")));
+            if (name.isBlank()) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", nonBlankOrGenerated(rawMap.get("id")));
+            row.put("name", name);
+            row.put("category", defaultString(forcedCategory, defaultString(asString(rawMap.get("category")), "TRAINING_ASSESSMENT")));
+            row.put("semester", sanitizeSemester(rawMap.get("semester")));
+            row.put("conductorType", defaultString(asString(rawMap.get("conductorType")), "INTERNAL"));
+            row.put("conductorName", defaultString(asString(rawMap.get("conductorName"))));
+            row.put("score", clampScore(rawMap.get("score")));
+            row.put("maxScore", sanitizeMaxScore(rawMap.get("maxScore")));
+            row.put("attendancePercent", clampPercent(rawMap.get("attendancePercent")));
+            row.put("remarks", defaultString(asString(rawMap.get("remarks"))));
+            sanitized.add(row);
+        }
+        return sanitized;
+    }
+
+    private List<Map<String, Object>> filterActivityEntriesByCategory(List<Map<String, Object>> entries, String category) {
+        return entries.stream()
+                .filter(entry -> category.equalsIgnoreCase(defaultString(asString(entry.get("category")))))
+                .toList();
+    }
+
+    private List<Map<String, Object>> filterAssessmentEntries(List<Map<String, Object>> entries) {
+        return entries.stream()
+                .filter(entry -> !"TRAINING_ATTENDANCE".equalsIgnoreCase(defaultString(asString(entry.get("category")))))
+                .toList();
+    }
+
+    private List<Map<String, Object>> sanitizePlacementRoundEntries(Object rawValue) {
+        if (!(rawValue instanceof List<?> items)) {
+            return new ArrayList<>();
+        }
+
+        List<Map<String, Object>> sanitized = new ArrayList<>();
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                continue;
+            }
+            String name = defaultString(asString(rawMap.get("name")));
+            if (name.isBlank()) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", nonBlankOrGenerated(rawMap.get("id")));
+            row.put("name", name);
+            row.put("semester", sanitizeSemester(rawMap.get("semester")));
+            row.put("conductedBy", defaultString(asString(rawMap.get("conductedBy")), "PLACEMENT_TEAM"));
+            row.put("score", clampScore(rawMap.get("score")));
+            row.put("maxScore", sanitizeMaxScore(rawMap.get("maxScore")));
+            row.put("remarks", defaultString(asString(rawMap.get("remarks"))));
+            sanitized.add(row);
+        }
+        return sanitized;
+    }
+
+    private String nonBlankOrGenerated(Object value) {
+        String raw = asString(value);
+        return raw == null || raw.isBlank() ? UUID.randomUUID().toString() : raw;
+    }
+
+    private Integer sanitizeSemester(Object value) {
+        int semester = toInt(value);
+        if (semester < 1) return 1;
+        return Math.min(semester, 8);
+    }
+
+    private double sanitizeMaxScore(Object value) {
+        double maxScore = toDouble(value);
+        return maxScore <= 0 ? 100.0 : roundTwoDecimals(maxScore);
+    }
+
+    private double clampScore(Object value) {
+        double score = toDouble(value);
+        if (score < 0) return 0.0;
+        return roundTwoDecimals(score);
+    }
+
+    private double clampPercent(Object value) {
+        double percent = toDouble(value);
+        if (percent < 0) return 0.0;
+        return roundTwoDecimals(Math.min(percent, 100.0));
+    }
+
+    private double calculateAverageScore(List<Map<String, Object>> entries) {
+        return roundTwoDecimals(entries.stream()
+                .mapToDouble(entry -> normalizeScore(entry.get("score"), entry.get("maxScore")))
+                .average()
+                .orElse(0.0));
+    }
+
+    private double calculateAverageAttendance(List<Map<String, Object>> entries) {
+        return roundTwoDecimals(entries.stream()
+                .mapToDouble(entry -> toDouble(entry.get("attendancePercent")))
+                .average()
+                .orElse(0.0));
+    }
+
+    private double normalizeScore(Object scoreValue, Object maxScoreValue) {
+        double score = toDouble(scoreValue);
+        double maxScore = toDouble(maxScoreValue);
+        if (maxScore <= 0) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(100.0, (score / maxScore) * 100.0));
+    }
+
+    private double toDouble(Object value) {
+        if (value == null) return 0.0;
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return 0.0;
+        }
+    }
+
+    private int toInt(Object value) {
+        if (value == null) return 0;
+        try {
+            return (int) Math.round(Double.parseDouble(String.valueOf(value)));
+        } catch (NumberFormatException exception) {
+            return 0;
+        }
+    }
+
+    private String asString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private double roundTwoDecimals(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     private boolean isCoordinatorOrAdmin() {

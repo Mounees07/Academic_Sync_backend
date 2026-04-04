@@ -45,6 +45,12 @@ public class PlacementProfile {
     @Builder.Default
     private Double cgpaScore = 0.0;           // stored from student profile
 
+    @Column(columnDefinition = "TEXT")
+    private String activityScoresJson;
+
+    @Column(columnDefinition = "TEXT")
+    private String placementRoundsJson;
+
     @Builder.Default
     private String placementStatus = "NOT_READY";
 
