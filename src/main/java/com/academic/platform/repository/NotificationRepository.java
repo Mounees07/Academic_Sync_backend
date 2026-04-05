@@ -23,4 +23,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Transactional
     @Query("UPDATE Notification n SET n.isRead = true WHERE n.user.firebaseUid = :uid")
     int markAllReadByUserFirebaseUid(@Param("uid") String uid);
+
+    long deleteByIdAndUserFirebaseUid(Long id, String uid);
 }

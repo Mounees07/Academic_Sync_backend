@@ -36,6 +36,9 @@ public class PlacementDriveWorkflowService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private StudentAlertService studentAlertService;
+
     public void syncDriveApplications(PlacementDrive drive, Set<String> previousEligibleStudentUids) {
         Map<String, PlacementDriveApplication> existingByStudent = applicationRepository.findByDriveIdOrderByCreatedAtAsc(drive.getId())
                 .stream()
@@ -142,23 +145,13 @@ public class PlacementDriveWorkflowService {
 
         driveRepository.save(drive);
 
-        notificationService.createNotification(
-                studentUid,
-                "PLACEMENT_REVIEW",
-                "Application Reviewed",
-                "Your application for " + safeDriveName(drive) + " is now " + normalizedStatus + ".",
-                "/student/placement"
+        studentAlertService.notifyPlacementResult(
+                application.getStudent(),
+                drive.getCompany().getCompanyName(),
+                drive.getRoleTitle(),
+                normalizedStatus,
+                remarks
         );
-        if (application.getStudent().getEmail() != null && !application.getStudent().getEmail().isBlank()) {
-            emailService.sendPlacementApplicationReview(
-                    application.getStudent().getEmail(),
-                    defaultString(application.getStudent().getFullName(), "Student"),
-                    drive.getCompany().getCompanyName(),
-                    drive.getRoleTitle(),
-                    normalizedStatus,
-                    remarks
-            );
-        }
         return applicationRepository.save(application);
     }
 
@@ -244,24 +237,13 @@ public class PlacementDriveWorkflowService {
     }
 
     private void notifyStudentOfNewDrive(PlacementDrive drive, User student) {
-        notificationService.createNotification(
-                student.getFirebaseUid(),
-                "PLACEMENT_DRIVE",
-                "New Placement Drive",
-                "You are eligible for " + safeDriveName(drive) + ". Review the requirements and apply from your placement page.",
-                "/student/placement"
+        studentAlertService.notifyPlacementDriveOpened(
+                student,
+                drive.getCompany().getCompanyName(),
+                drive.getRoleTitle(),
+                drive.getDriveDate() == null ? "To be announced" : drive.getDriveDate().toString(),
+                defaultString(drive.getLocation(), "To be announced")
         );
-        if (student.getEmail() != null && !student.getEmail().isBlank()) {
-            emailService.sendPlacementDriveInvitation(
-                    student.getEmail(),
-                    defaultString(student.getFullName(), "Student"),
-                    drive.getCompany().getCompanyName(),
-                    drive.getRoleTitle(),
-                    drive.getDriveDate() == null ? "To be announced" : drive.getDriveDate().toString(),
-                    defaultString(drive.getLocation(), "To be announced"),
-                    defaultString(drive.getEligibilityCriteria(), "Refer to the placement portal")
-            );
-        }
     }
 
     private void notifyMentorOfNonApplicants(List<PlacementDriveApplication> applications) {

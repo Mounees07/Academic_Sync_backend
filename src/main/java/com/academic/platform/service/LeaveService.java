@@ -5,6 +5,7 @@ import com.academic.platform.model.User;
 import com.academic.platform.repository.LeaveRequestRepository;
 import com.academic.platform.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.UUID;
@@ -23,8 +24,11 @@ public class LeaveService {
     @Autowired
     private EmailService emailService;
 
-    // Hardcoded for now, should be from properties or env
-    private static final String FRONTEND_URL = "http://10.10.188.128:5173";
+    @Autowired
+    private StudentAlertService studentAlertService;
+
+    @Value("${app.frontend.url:http://localhost:5173}")
+    private String frontendUrl;
 
     public LeaveRequest applyLeave(String studentUid, LeaveRequest request) {
         User student = userRepository.findByFirebaseUid(studentUid)
@@ -49,7 +53,7 @@ public class LeaveService {
         LeaveRequest saved = leaveRepository.save(request);
 
         // Send Email to Parent with OTP
-        String approvalLink = FRONTEND_URL + "/parent-response/" + saved.getParentActionToken();
+        String approvalLink = buildFrontendUrl("/parent-response/" + saved.getParentActionToken());
         emailService.sendParentApprovalRequest(
                 request.getParentEmail(),
                 student.getFullName(),
@@ -83,15 +87,18 @@ public class LeaveService {
             leave.setMentorStatus("REJECTED_BY_PARENT");
             emailService.sendStudentLeaveStatus(leave.getStudent().getEmail(), "REJECTED (By Parent)",
                     "Your parent has declined this request.");
+            studentAlertService.notifyLeaveStatus(
+                    leave.getStudent(),
+                    leave.getLeaveType(),
+                    "REJECTED_BY_PARENT",
+                    "Your parent has declined this request."
+            );
         }
         // If Approved, we don't need to generate OTP again, it was already sent.
         // We just save the status.
 
         return leaveRepository.save(leave);
     }
-
-    @Autowired
-    private NotificationService notificationService;
 
     public List<LeaveRequest> getPendingLeavesForMentor(String mentorUid) {
         return leaveRepository.findByStudentMentorFirebaseUidAndParentStatus(mentorUid);
@@ -104,15 +111,7 @@ public class LeaveService {
         leave.setMentorStatus(status);
         LeaveRequest saved = leaveRepository.save(leave);
 
-        // Notify Student via email
-        emailService.sendStudentLeaveStatus(leave.getStudent().getEmail(), status, remarks);
-
-        // Notify Student via in-app dashboard
-        try {
-            notificationService.sendLeaveUpdate(leave.getStudent().getFirebaseUid(), leave.getLeaveType(), status);
-        } catch (Exception e) {
-            // ignore
-        }
+        studentAlertService.notifyLeaveStatus(leave.getStudent(), leave.getLeaveType(), status, remarks);
 
         return saved;
     }
@@ -312,5 +311,16 @@ public class LeaveService {
         }
 
         return leaveRepository.save(leave);
+    }
+
+    private String buildFrontendUrl(String path) {
+        String baseUrl = frontendUrl == null || frontendUrl.isBlank() ? "http://localhost:5173" : frontendUrl.trim();
+        String normalizedPath = path == null || path.isBlank() ? "/" : path.trim();
+        if (!normalizedPath.startsWith("/")) {
+            normalizedPath = "/" + normalizedPath;
+        }
+        return baseUrl.endsWith("/")
+                ? baseUrl.substring(0, baseUrl.length() - 1) + normalizedPath
+                : baseUrl + normalizedPath;
     }
 }

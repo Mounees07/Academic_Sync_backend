@@ -43,6 +43,9 @@ public class ResultService {
     private NotificationService notificationService;
 
     @Autowired
+    private StudentAlertService studentAlertService;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -580,16 +583,7 @@ public class ResultService {
                     userRepository.save(student);
                     logs.add("âœ… " + email + ": Updated Results & SGPA: " + (sgpa != null ? sgpa : "N/A"));
 
-                    try {
-                        notificationService.createNotification(
-                                student.getFirebaseUid(),
-                                "RESULT_PUBLISHED",
-                                "Semester Results Published",
-                                "The Controller of Examinations has officially released your latest semester results.",
-                                "/student/results"
-                        );
-                    } catch (Exception ignored) {
-                    }
+                    studentAlertService.notifyResultPublished(student, rowSemester);
                 }
             }
         } catch (Exception e) {
@@ -733,16 +727,7 @@ public class ResultService {
                 userRepository.save(student);
                 logs.add("âœ… " + student.getEmail() + ": Published results with SGPA " + (sgpa != null ? sgpa : "N/A"));
 
-                try {
-                    notificationService.createNotification(
-                            student.getFirebaseUid(),
-                            "RESULT_PUBLISHED",
-                            "Semester Results Published",
-                            "The Controller of Examinations has officially released your latest semester results.",
-                            "/student/results"
-                    );
-                } catch (Exception ignored) {
-                }
+                studentAlertService.notifyResultPublished(student, sem);
             }
         }
 

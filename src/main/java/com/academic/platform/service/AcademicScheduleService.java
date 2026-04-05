@@ -30,6 +30,9 @@ public class AcademicScheduleService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private StudentAlertService studentAlertService;
+
     public List<AcademicSchedule> getAllUpcomingSchedules() {
         // Fetch schedules from 30 days ago up to future to ensure current visibility
         LocalDate cutoff = LocalDate.now().minusDays(30);
@@ -256,22 +259,11 @@ public class AcademicScheduleService {
             List<AcademicSchedule> saved = scheduleRepository.saveAll(schedules);
 
             try {
-                String dept = uploader.getStudentDetails() != null ? uploader.getStudentDetails().getDepartment() : null;
-                if (dept != null) {
-                    List<User> students = userRepository.findByStudentDetails_Department(dept);
-                    for (User s : students) {
-                        try {
-                            notificationService.createNotification(
-                                    s.getFirebaseUid(),
-                                    "SCHEDULE_PUBLISHED",
-                                    "Timetable Published",
-                                    "A new academic schedule has been published for your department.",
-                                    "/schedule"
-                            );
-                        } catch (Exception ignored) {}
-                    }
-                }
-            } catch (Exception ignored) {}
+                studentAlertService.notifySchedulePublished(saved);
+            } catch (Exception e) {
+                System.err.println("Failed to dispatch schedule alerts: " + e.getMessage());
+                e.printStackTrace();
+            }
 
             return saved;
 

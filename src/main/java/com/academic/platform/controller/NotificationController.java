@@ -37,6 +37,14 @@ public class NotificationController {
         return ResponseEntity.ok(Map.of("marked", updated));
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Map<String, Object>> deleteNotification(
+            @PathVariable Long id,
+            @RequestParam String uid) {
+        service.deleteNotification(id, uid);
+        return ResponseEntity.ok(Map.of("deleted", true, "id", id));
+    }
+
     @PostMapping("/user/{uid}/create")
     public ResponseEntity<Notification> create(
             @PathVariable String uid,

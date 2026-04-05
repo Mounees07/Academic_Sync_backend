@@ -44,6 +44,13 @@ public class NotificationService {
         return notificationRepo.markAllReadByUserFirebaseUid(userUid);
     }
 
+    public void deleteNotification(Long notifId, String userUid) {
+        long deleted = notificationRepo.deleteByIdAndUserFirebaseUid(notifId, userUid);
+        if (deleted == 0) {
+            throw new RuntimeException("Notification not found: " + notifId);
+        }
+    }
+
     public Notification createNotification(String userUid, String type, String title,
                                             String message, String actionUrl) {
         User user = userRepository.findByFirebaseUid(userUid)
