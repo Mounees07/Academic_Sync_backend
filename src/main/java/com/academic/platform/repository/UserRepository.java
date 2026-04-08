@@ -15,6 +15,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findByRole(Role role);
 
+    @Query("""
+            SELECT u.firebaseUid, u.fullName, u.email, sd.department, sd.rollNumber, sd.semester,
+                   COALESCE(sd.cgpa, sd.gpa)
+            FROM User u
+            LEFT JOIN u.studentDetails sd
+            WHERE u.role = :role
+            """)
+    List<Object[]> findPlacementStudentSnapshotsByRole(@Param("role") Role role);
+
     List<User> findByRoleIn(List<Role> roles);
 
     // Mentor moved to StudentDetails

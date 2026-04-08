@@ -451,21 +451,71 @@ public class PlacementCoordinatorController {
     private List<Map<String, Object>> buildStudentRows() {
         List<Map<String, Object>> rows = new ArrayList<>();
 
-        for (User student : userRepository.findByRole(Role.STUDENT)) {
+        for (Object[] snapshot : userRepository.findPlacementStudentSnapshotsByRole(Role.STUDENT)) {
             try {
-                PlacementProfile profile = profileRepository.findByStudentFirebaseUid(student.getFirebaseUid())
-                        .orElse(PlacementProfile.builder().student(student).build());
-                if (student.getStudentDetails() != null) {
-                    Double cgpa = student.getStudentDetails().getCgpa();
-                    if (cgpa == null) {
-                        cgpa = student.getStudentDetails().getGpa();
-                    }
-                    profile.setCgpaScore(cgpa == null ? 0.0 : cgpa);
-                }
-                rows.add(buildStudentRow(student, profile));
+                String firebaseUid = asString(snapshot[0]);
+                String fullName = asString(snapshot[1]);
+                String email = asString(snapshot[2]);
+                String department = asString(snapshot[3]);
+                String rollNumber = asString(snapshot[4]);
+                Integer semester = snapshot[5] == null ? null : toInt(snapshot[5]);
+                Double cgpaScore = snapshot[6] == null ? 0.0 : toDouble(snapshot[6]);
+
+                PlacementProfile profile = profileRepository.findByStudentFirebaseUid(firebaseUid)
+                        .orElse(null);
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("uid", firebaseUid);
+                row.put("name", defaultString(fullName, "Student"));
+                row.put("email", defaultString(email));
+                row.put("department", defaultString(department));
+                row.put("rollNumber", defaultString(rollNumber));
+                row.put("year", semester != null ? Math.max(1, (semester + 1) / 2) : 1);
+
+                double readinessScore = profile != null ? profile.getReadinessScore() : 0.0;
+                row.put("readinessScore", readinessScore);
+                row.put("skillsCompleted", profile != null && profile.getSkillsCompleted() != null ? profile.getSkillsCompleted() : 0);
+                row.put("totalSkills", profile != null && profile.getTotalSkills() != null ? profile.getTotalSkills() : 10);
+                row.put("aptitudeScore", profile != null && profile.getAptitudeScore() != null ? profile.getAptitudeScore() : 0.0);
+                row.put("mockInterviewScore", profile != null && profile.getMockInterviewScore() != null ? profile.getMockInterviewScore() : 0.0);
+                row.put("resumeUrl", profile != null ? profile.getResumeUrl() : null);
+                row.put("resumeUploaded", profile != null && Boolean.TRUE.equals(profile.getResumeUploaded()));
+                row.put("resumeReviewStatus", profile != null ? defaultString(profile.getResumeReviewStatus(), "PENDING") : "PENDING");
+                row.put("resumeRemarks", profile != null ? profile.getResumeRemarks() : null);
+                row.put("placementStatus", profile != null
+                        ? defaultString(profile.getPlacementStatus(), derivePlacementStatus(profile))
+                        : "NOT_READY");
+                row.put("completedSkillsList", profile != null ? defaultString(profile.getCompletedSkillsList()) : "");
+                row.put("preferredRole", profile != null ? defaultString(profile.getPreferredRole()) : "");
+                row.put("preferredCompanies", profile != null ? defaultString(profile.getPreferredCompanies()) : "");
+                row.put("cgpaScore", cgpaScore);
+
+                List<Map<String, Object>> activityScores = profile != null
+                        ? sanitizeActivityEntries(readJsonList(profile.getActivityScoresJson()))
+                        : new ArrayList<>();
+                List<Map<String, Object>> placementRounds = profile != null
+                        ? sanitizePlacementRoundEntries(readJsonList(profile.getPlacementRoundsJson()))
+                        : new ArrayList<>();
+                List<Map<String, Object>> trainingAttendance = filterActivityEntriesByCategory(activityScores, "TRAINING_ATTENDANCE");
+                List<Map<String, Object>> assessmentScores = filterAssessmentEntries(activityScores);
+
+                row.put("activityScores", activityScores);
+                row.put("trainingAttendance", trainingAttendance);
+                row.put("assessmentScores", assessmentScores);
+                row.put("placementRounds", placementRounds);
+                row.put("activityCount", activityScores.size());
+                row.put("attendanceCount", trainingAttendance.size());
+                row.put("assessmentScoreCount", assessmentScores.size());
+                row.put("placementRoundCount", placementRounds.size());
+                row.put("averageActivityScore", calculateAverageScore(assessmentScores));
+                row.put("averageAssessmentScore", calculateAverageScore(assessmentScores));
+                row.put("averageAttendancePercent", calculateAverageAttendance(trainingAttendance));
+                row.put("averagePlacementRoundScore", calculateAverageScore(placementRounds));
+
+                rows.add(row);
             } catch (Exception exception) {
                 System.err.println("Skipping placement row for student "
-                        + defaultString(student != null ? student.getFirebaseUid() : null, "unknown")
+                        + defaultString(snapshot != null && snapshot.length > 0 ? asString(snapshot[0]) : null, "unknown")
                         + ": " + exception.getMessage());
             }
         }
