@@ -97,8 +97,10 @@ public class PlacementProfile {
     @Transient
     public double getReadinessScore() {
         double resumePoints = Boolean.TRUE.equals(resumeUploaded) ? 20.0 : 0.0;
-        double skillPoints = totalSkills != null && totalSkills > 0
-                ? (skillsCompleted.doubleValue() / totalSkills) * 30.0 : 0.0;
+        double safeSkillsCompleted = skillsCompleted == null ? 0.0 : skillsCompleted.doubleValue();
+        double safeTotalSkills = totalSkills == null ? 10.0 : totalSkills.doubleValue();
+        double skillPoints = safeTotalSkills > 0
+                ? (safeSkillsCompleted / safeTotalSkills) * 30.0 : 0.0;
         double aptitudePoints = aptitudeScore != null ? (aptitudeScore / 100.0) * 25.0 : 0.0;
         double interviewPoints = mockInterviewScore != null ? (mockInterviewScore / 100.0) * 25.0 : 0.0;
         return Math.round((resumePoints + skillPoints + aptitudePoints + interviewPoints) * 100.0) / 100.0;

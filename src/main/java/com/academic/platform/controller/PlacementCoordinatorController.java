@@ -449,23 +449,32 @@ public class PlacementCoordinatorController {
     }
 
     private List<Map<String, Object>> buildStudentRows() {
-        return userRepository.findByRole(Role.STUDENT).stream()
-                .map(student -> {
-                    PlacementProfile profile = profileRepository.findByStudentFirebaseUid(student.getFirebaseUid())
-                            .orElse(PlacementProfile.builder().student(student).build());
-                    if (student.getStudentDetails() != null) {
-                        Double cgpa = student.getStudentDetails().getCgpa();
-                        if (cgpa == null) {
-                            cgpa = student.getStudentDetails().getGpa();
-                        }
-                        profile.setCgpaScore(cgpa == null ? 0.0 : cgpa);
+        List<Map<String, Object>> rows = new ArrayList<>();
+
+        for (User student : userRepository.findByRole(Role.STUDENT)) {
+            try {
+                PlacementProfile profile = profileRepository.findByStudentFirebaseUid(student.getFirebaseUid())
+                        .orElse(PlacementProfile.builder().student(student).build());
+                if (student.getStudentDetails() != null) {
+                    Double cgpa = student.getStudentDetails().getCgpa();
+                    if (cgpa == null) {
+                        cgpa = student.getStudentDetails().getGpa();
                     }
-                    return buildStudentRow(student, profile);
-                })
-                .sorted((left, right) -> Double.compare(
-                        ((Number) right.get("readinessScore")).doubleValue(),
-                        ((Number) left.get("readinessScore")).doubleValue()))
-                .toList();
+                    profile.setCgpaScore(cgpa == null ? 0.0 : cgpa);
+                }
+                rows.add(buildStudentRow(student, profile));
+            } catch (Exception exception) {
+                System.err.println("Skipping placement row for student "
+                        + defaultString(student != null ? student.getFirebaseUid() : null, "unknown")
+                        + ": " + exception.getMessage());
+            }
+        }
+
+        rows.sort((left, right) -> Double.compare(
+                ((Number) right.get("readinessScore")).doubleValue(),
+                ((Number) left.get("readinessScore")).doubleValue()));
+
+        return rows;
     }
 
     private Map<String, Object> buildStudentRow(User student, PlacementProfile profile) {
@@ -479,10 +488,10 @@ public class PlacementCoordinatorController {
                 ? Math.max(1, (student.getStudentDetails().getSemester() + 1) / 2)
                 : 1);
         row.put("readinessScore", profile.getReadinessScore());
-        row.put("skillsCompleted", profile.getSkillsCompleted());
-        row.put("totalSkills", profile.getTotalSkills());
-        row.put("aptitudeScore", profile.getAptitudeScore());
-        row.put("mockInterviewScore", profile.getMockInterviewScore());
+        row.put("skillsCompleted", profile.getSkillsCompleted() == null ? 0 : profile.getSkillsCompleted());
+        row.put("totalSkills", profile.getTotalSkills() == null ? 10 : profile.getTotalSkills());
+        row.put("aptitudeScore", profile.getAptitudeScore() == null ? 0.0 : profile.getAptitudeScore());
+        row.put("mockInterviewScore", profile.getMockInterviewScore() == null ? 0.0 : profile.getMockInterviewScore());
         row.put("resumeUrl", profile.getResumeUrl());
         row.put("resumeUploaded", profile.getResumeUploaded());
         row.put("resumeReviewStatus", defaultString(profile.getResumeReviewStatus(), "PENDING"));
