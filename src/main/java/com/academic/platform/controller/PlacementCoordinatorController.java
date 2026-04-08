@@ -16,6 +16,7 @@ import com.academic.platform.service.PlacementDriveWorkflowService;
 import com.academic.platform.utils.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -50,6 +51,7 @@ public class PlacementCoordinatorController {
     private ObjectMapper objectMapper;
 
     @GetMapping("/dashboard")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getDashboard() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
@@ -98,6 +100,7 @@ public class PlacementCoordinatorController {
     }
 
     @GetMapping("/students")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getStudents() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
@@ -106,6 +109,7 @@ public class PlacementCoordinatorController {
     }
 
     @GetMapping("/assessments")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getAssessments() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
@@ -194,6 +198,7 @@ public class PlacementCoordinatorController {
     }
 
     @GetMapping("/analytics")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getAnalytics() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
@@ -229,6 +234,7 @@ public class PlacementCoordinatorController {
     }
 
     @GetMapping("/companies")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getCompanies() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
@@ -271,6 +277,7 @@ public class PlacementCoordinatorController {
     }
 
     @GetMapping("/drives")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> getDrives() {
         if (!isCoordinatorOrAdmin()) {
             return ResponseEntity.status(403).body("Access denied.");
