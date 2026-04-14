@@ -17,6 +17,69 @@ import org.springframework.stereotype.Service;
 @Service
 public class EmailService {
 
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
+    private String emailShell(String preheader, String title, String subtitle, String content) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>"
+                + "<body style='margin:0;padding:0;background:#eef2f7;font-family:Segoe UI,Arial,sans-serif;color:#0f172a;'>"
+                + "<div style='display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;'>"
+                + escapeHtml(preheader)
+                + "</div>"
+                + "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='background:#eef2f7;margin:0;padding:24px 0;'>"
+                + "<tr><td align='center'>"
+                + "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='max-width:640px;background:#ffffff;border-radius:24px;overflow:hidden;box-shadow:0 20px 48px rgba(15,23,42,0.12);'>"
+                + "<tr><td style='padding:0;'>"
+                + "<div style='background:linear-gradient(135deg,#0f4c81,#1d4ed8 58%,#0ea5a4);padding:32px 36px;color:#ffffff;'>"
+                + "<div style='font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;opacity:0.82;'>Academic Portal</div>"
+                + "<h1 style='margin:12px 0 6px;font-size:30px;line-height:1.15;font-weight:800;color:#ffffff;'>" + escapeHtml(title) + "</h1>"
+                + "<p style='margin:0;font-size:15px;line-height:1.6;color:rgba(255,255,255,0.88);'>" + escapeHtml(subtitle) + "</p>"
+                + "</div>"
+                + "</td></tr>"
+                + "<tr><td style='padding:32px 36px;background:#ffffff;'>" + content + "</td></tr>"
+                + "<tr><td style='padding:18px 36px;background:#f8fafc;border-top:1px solid #e2e8f0;'>"
+                + "<p style='margin:0;font-size:12px;line-height:1.7;color:#64748b;'>This is an automated message from Academic Portal. Please do not reply directly to this email.</p>"
+                + "</td></tr>"
+                + "</table>"
+                + "</td></tr></table>"
+                + "</body></html>";
+    }
+
+    private String infoGridRow(String label, String value) {
+        return "<tr>"
+                + "<td style='padding:12px 0 4px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;'>"
+                + escapeHtml(label)
+                + "</td>"
+                + "</tr>"
+                + "<tr>"
+                + "<td style='padding:0 0 14px;font-size:15px;line-height:1.6;color:#0f172a;border-bottom:1px solid #e2e8f0;'>"
+                + escapeHtml(value)
+                + "</td>"
+                + "</tr>";
+    }
+
+    private String otpPanel(String otp, String helperText) {
+        return "<div style='margin:24px 0;padding:22px 20px;border:1px solid #bbf7d0;border-radius:20px;background:linear-gradient(180deg,#f0fdf4,#ecfdf5);text-align:center;'>"
+                + "<div style='font-size:12px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#166534;margin-bottom:8px;'>Authorization Code</div>"
+                + "<div style='font-family:Consolas,Menlo,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:#166534;'>"
+                + escapeHtml(otp)
+                + "</div>"
+                + "<div style='margin-top:10px;font-size:13px;line-height:1.6;color:#166534;'>"
+                + escapeHtml(helperText)
+                + "</div>"
+                + "</div>";
+    }
+
     @Autowired
     private JavaMailSender mailSender;
 
@@ -96,35 +159,33 @@ public class EmailService {
     @Async("emailExecutor")
     public void sendParentApprovalRequest(String parentEmail, String studentName, String leaveReason, String from,
             String to, String approvalLink, String otp) {
-        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
-                + "<body style='font-family: sans-serif; background-color: #121212; margin: 0; padding: 0;'>"
-                + "  <div style='max-width: 400px; margin: 20px auto; background-color: #1a1a1a; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #ffffff;'>"
-                + "    <div style='background-color: #1e3a8a; padding: 30px 20px; text-align: center;'>"
-                + "      <h1 style='margin: 0; font-size: 20px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 1px;'>ACADEMIC PORTAL</h1>"
-                + "      <p style='margin: 5px 0 0; font-size: 12px; color: #bfdbfe; font-weight: 500;'>Leave Authorization</p>"
-                + "    </div>"
-                + "    <div style='padding: 30px 20px; text-align: center;'>"
-                + "      <h2 style='font-size: 16px; margin: 0 0 10px; font-weight: 600; color: #ffffff;'>Verify Leave Request</h2>"
-                + "      <p style='font-size: 14px; color: #9ca3af; margin: 0 0 20px;'>Your child <strong>"
-                + studentName + "</strong> has requested leave.</p>"
-                + "      <div style='background-color: #262626; border-radius: 8px; padding: 15px; text-align: left; margin: 15px 0; font-size: 13px; color: #d1d5db;'>"
-                + "        <p style='margin: 5px 0;'><strong>Date:</strong> " + from + " to " + to + "</p>"
-                + "        <p style='margin: 5px 0;'><strong>Reason:</strong> " + leaveReason + "</p>"
-                + "      </div>"
-                + "      <p style='font-size: 12px; margin-top: 20px; color: #9ca3af;'>To authorize this request, please click the button below or share the code below with the mentor:</p>"
-                + "      <a href='" + approvalLink + "' style='display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; margin-bottom: 15px;'>Review Leave Request</a><br/>"
-                + "      <div style='background-color: #0f1c13; border: 1px solid #14532d; border-radius: 8px; padding: 15px; margin: 20px 0; display: inline-block; width: 80%;'>"
-                + "        <p style='color: #22c55e; font-size: 32px; font-weight: 700; letter-spacing: 5px; margin: 0; font-family: monospace;'>"
-                + otp + "</p>"
-                + "      </div>"
-                + "      <p style='color: #ffffff; margin-bottom: 5px; font-weight: 600; font-size: 12px;'>Valid for 7 days.</p>"
-                + "      <p style='font-size: 12px; color: #6b7280; margin-top: 20px;'>Do not share this OTP with anyone other than the mentor.</p>"
-                + "    </div>"
-                + "    <div style='background-color: #171717; padding: 15px; text-align: center; font-size: 10px; color: #525252; border-top: 1px solid #262626;'>"
-                + "      &copy; 2026 Academic Platform System. All rights reserved."
-                + "    </div>"
-                + "  </div>"
-                + "</body></html>";
+        String content = "<p style='margin:0 0 18px;font-size:16px;line-height:1.7;color:#334155;'>Dear Parent/Guardian,</p>"
+                + "<p style='margin:0 0 20px;font-size:15px;line-height:1.8;color:#475569;'>"
+                + "A leave request has been submitted for <strong style='color:#0f172a;'>" + escapeHtml(studentName) + "</strong>. "
+                + "Please review the details below and authorize the request if everything is correct."
+                + "</p>"
+                + "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='padding:18px 20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;'>"
+                + infoGridRow("Requested Dates", from + " to " + to)
+                + infoGridRow("Reason", leaveReason)
+                + "</table>"
+                + "<div style='margin:24px 0 18px;padding:18px 20px;border-radius:18px;background:#eff6ff;border:1px solid #bfdbfe;'>"
+                + "<p style='margin:0 0 10px;font-size:14px;line-height:1.7;color:#1e3a8a;font-weight:700;'>Approve online</p>"
+                + "<p style='margin:0 0 16px;font-size:14px;line-height:1.7;color:#475569;'>Use the secure review link below to confirm the leave request in one step.</p>"
+                + "<a href='" + approvalLink + "' style='display:inline-block;padding:13px 22px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:12px;font-size:14px;font-weight:700;'>Review Leave Request</a>"
+                + "</div>"
+                + "<p style='margin:0 0 8px;font-size:14px;line-height:1.7;color:#475569;'>"
+                + "If you prefer to share a code with the mentor, use the authorization code below."
+                + "</p>"
+                + otpPanel(otp, "Valid for 7 days. Share only with the assigned mentor.")
+                + "<div style='padding:16px 18px;border-radius:16px;background:#fff7ed;border:1px solid #fed7aa;'>"
+                + "<p style='margin:0;font-size:13px;line-height:1.7;color:#9a3412;'>For your security, please do not share this code with anyone other than the faculty mentor handling this leave request.</p>"
+                + "</div>";
+
+        String html = emailShell(
+                "Leave authorization required for " + studentName,
+                "Leave Authorization Required",
+                "Please review and confirm your ward's leave request.",
+                content);
 
         sendHtmlEmail(parentEmail, "Leave Authorization Code for " + studentName, html);
     }
@@ -192,29 +253,21 @@ public class EmailService {
 
     @Async("emailExecutor")
     public void sendParentOtpCode(String parentEmail, String studentName, String otp) {
-        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'></head>"
-                + "<body style='font-family: sans-serif; background-color: #121212; margin: 0; padding: 0;'>"
-                + "  <div style='max-width: 400px; margin: 20px auto; background-color: #1a1a1a; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: #ffffff;'>"
-                + "    <div style='background-color: #1e3a8a; padding: 30px 20px; text-align: center;'>"
-                + "      <h1 style='margin: 0; font-size: 20px; font-weight: 700; color: #ffffff; text-transform: uppercase; letter-spacing: 1px;'>ACADEMIC PORTAL</h1>"
-                + "      <p style='margin: 5px 0 0; font-size: 12px; color: #bfdbfe; font-weight: 500;'>Security Verification</p>"
-                + "    </div>"
-                + "    <div style='padding: 30px 20px; text-align: center;'>"
-                + "      <h2 style='font-size: 16px; margin: 0 0 10px; font-weight: 600; color: #ffffff;'>Leave Approval OTP</h2>"
-                + "      <p style='font-size: 14px; color: #9ca3af; margin: 0 0 20px;'>You have approved the leave for <strong>"
-                + studentName + "</strong>.</p>"
-                + "      <p style='font-size: 12px; color: #9ca3af;'>Provide this code to the mentor to finalize the process:</p>"
-                + "      <div style='background-color: #0f1c13; border: 1px solid #14532d; border-radius: 8px; padding: 15px; margin: 20px 0; display: inline-block; width: 80%;'>"
-                + "        <p style='color: #22c55e; font-size: 32px; font-weight: 700; letter-spacing: 5px; margin: 0; font-family: monospace;'>"
-                + otp + "</p>"
-                + "      </div>"
-                + "      <p style='color: #ffffff; margin-bottom: 5px; font-weight: 600; font-size: 12px;'>Valid for 7 days.</p>"
-                + "    </div>"
-                + "    <div style='background-color: #171717; padding: 15px; text-align: center; font-size: 10px; color: #525252; border-top: 1px solid #262626;'>"
-                + "      &copy; 2026 Academic Platform System. All rights reserved."
-                + "    </div>"
-                + "  </div>"
-                + "</body></html>";
+        String content = "<p style='margin:0 0 18px;font-size:16px;line-height:1.7;color:#334155;'>Dear Parent/Guardian,</p>"
+                + "<p style='margin:0 0 18px;font-size:15px;line-height:1.8;color:#475569;'>"
+                + "You have approved the leave request for <strong style='color:#0f172a;'>" + escapeHtml(studentName) + "</strong>."
+                + "</p>"
+                + "<p style='margin:0 0 8px;font-size:14px;line-height:1.7;color:#475569;'>Please share the authorization code below with the mentor to complete the approval workflow.</p>"
+                + otpPanel(otp, "Valid for 7 days. This code finalizes the leave approval.")
+                + "<div style='padding:16px 18px;border-radius:16px;background:#f8fafc;border:1px solid #e2e8f0;'>"
+                + "<p style='margin:0;font-size:13px;line-height:1.7;color:#475569;'>If this request was not approved by you, please contact the institution immediately.</p>"
+                + "</div>";
+
+        String html = emailShell(
+                "Authorization code for approved leave request",
+                "Leave Approval Confirmed",
+                "Share this secure code with the mentor to complete the process.",
+                content);
 
         sendHtmlEmail(parentEmail, "Action Required: OTP for Leave Approval", html);
     }

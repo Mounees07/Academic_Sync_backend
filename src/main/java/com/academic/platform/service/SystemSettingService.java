@@ -55,6 +55,10 @@ public class SystemSettingService {
 
         ensureDefault("allowRegistration", "true", "Allow public signup");
         ensureDefault("emailNotifications", "true", "Enable system emails");
+        ensureDefault("smsNotifications", "true", "Enable system SMS notifications");
+        ensureDefault("app.sms.twilio.account-sid", "", "Twilio account SID for SMS delivery");
+        ensureDefault("app.sms.twilio.auth-token", "", "Twilio auth token for SMS delivery");
+        ensureDefault("app.sms.twilio.from-number", "", "Twilio sender phone number for SMS delivery");
         ensureDefault("defaultLanguage", "English", "Default UI language");
         ensureDefault("sessionTimeout", "30", "Session timeout in minutes");
 
@@ -190,6 +194,7 @@ public class SystemSettingService {
                     key.equals("allowRegistration") ||
                     key.equals("maintenanceMode") ||
                     key.equals("emailNotifications") ||
+                    key.equals("smsNotifications") ||
                     key.equals("report.export.enabled") ||
                     key.equals("defaultLanguage") ||
                     key.startsWith("ui.")) {

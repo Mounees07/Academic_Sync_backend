@@ -25,6 +25,9 @@ public class LeaveService {
     private EmailService emailService;
 
     @Autowired
+    private SmsService smsService;
+
+    @Autowired
     private StudentAlertService studentAlertService;
 
     @Value("${app.frontend.url:http://localhost:5173}")
@@ -56,6 +59,18 @@ public class LeaveService {
         String approvalLink = buildFrontendUrl("/parent-response/" + saved.getParentActionToken());
         emailService.sendParentApprovalRequest(
                 request.getParentEmail(),
+                student.getFullName(),
+                request.getReason(),
+                request.getFromDate().toString(),
+                request.getToDate().toString(),
+                approvalLink,
+                otp);
+
+        String parentPhone = student.getStudentDetails() != null
+                ? student.getStudentDetails().getParentContact()
+                : null;
+        smsService.sendParentLeaveApplicationSms(
+                parentPhone,
                 student.getFullName(),
                 request.getReason(),
                 request.getFromDate().toString(),
@@ -176,6 +191,10 @@ public class LeaveService {
         leaveRepository.save(leave);
 
         emailService.sendParentOtpCode(leave.getParentEmail(), leave.getStudent().getFullName(), otp);
+        String parentPhone = leave.getStudent().getStudentDetails() != null
+                ? leave.getStudent().getStudentDetails().getParentContact()
+                : null;
+        smsService.sendParentOtpCodeSms(parentPhone, leave.getStudent().getFullName(), otp);
     }
 
     public LeaveRequest verifyOtpAndApprove(Long leaveId, String otp, String mentorUid, String remarks) {
