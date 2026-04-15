@@ -225,7 +225,7 @@ public class LeaveService {
 
     public void testEmail(String toEmail) {
         String otp = String.format("%06d", new java.util.Random().nextInt(999999));
-        emailService.sendActionOtp(toEmail, otp, "Test Email Verification");
+        emailService.sendActionOtpNow(toEmail, otp, "Test Email Verification");
     }
 
     public LeaveRequest getActiveLeaveForStudent(String rollNumber) {

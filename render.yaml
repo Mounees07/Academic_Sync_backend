@@ -4,3 +4,14 @@ services:
     plan: free
     env: docker
     dockerfilePath: ./Dockerfile
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: APP_FRONTEND_URL
+        value: https://adadamic-sync-frontend-ufaq.vercel.app
+      - key: MAIL_USERNAME
+        value: mounees072004@gmail.com
+      - key: MAIL_FROM
+        value: mounees072004@gmail.com
+      - key: MAIL_PASSWORD
+        sync: false

@@ -1,6 +1,7 @@
 package com.academic.platform.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.annotation.Async;
@@ -86,11 +87,49 @@ public class EmailService {
     @Autowired
     private SystemSettingService systemSettingService;
 
+    @Value("${app.mail.from:${spring.mail.username:}}")
+    private String mailFrom;
+
+    @Value("${spring.mail.username:}")
+    private String mailUsername;
+
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private void applyFrom(org.springframework.mail.javamail.MimeMessageHelper helper)
+            throws jakarta.mail.MessagingException {
+        if (!isBlank(mailFrom)) {
+            helper.setFrom(mailFrom.trim());
+        }
+    }
+
+    private void applyFrom(SimpleMailMessage message) {
+        if (!isBlank(mailFrom)) {
+            message.setFrom(mailFrom.trim());
+        }
+    }
+
     @Async("emailExecutor")
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        sendHtmlEmailNow(to, subject, htmlBody);
+    }
+
+    public void sendHtmlEmailNow(String to, String subject, String htmlBody) {
         if ("false".equalsIgnoreCase(systemSettingService.getSetting("emailNotifications"))) {
             System.out.println("Email notifications are disabled. Skipping email to: " + to);
             return;
+        }
+
+        if (isBlank(to)) {
+            throw new IllegalArgumentException("Email recipient is missing.");
+        }
+
+        if (isBlank(mailUsername) || isBlank(mailPassword)) {
+            throw new IllegalStateException("Mail is not configured. Set MAIL_USERNAME and MAIL_PASSWORD in production.");
         }
 
         try {
@@ -98,6 +137,7 @@ public class EmailService {
             org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(
                     message, true, "UTF-8");
 
+            applyFrom(helper);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true); // true = isHtml
@@ -113,7 +153,13 @@ public class EmailService {
 
     @Async("emailExecutor")
     public void sendMeetingNotification(String to, String mentorName, String title, String time, String location) {
+        if (isBlank(to)) {
+            System.err.println("Skipping meeting email: recipient is missing.");
+            return;
+        }
+
         SimpleMailMessage message = new SimpleMailMessage();
+        applyFrom(message);
         message.setTo(to);
         message.setSubject("New Mentorship Meeting Scheduled: " + title);
         message.setText("Dear Student,\n\n" +
@@ -135,7 +181,13 @@ public class EmailService {
     @Async("emailExecutor")
     public void sendBulkMeetingNotification(String[] bcc, String mentorName, String title, String time,
             String location) {
+        if (bcc == null || bcc.length == 0) {
+            System.err.println("Skipping bulk meeting email: recipients are missing.");
+            return;
+        }
+
         SimpleMailMessage message = new SimpleMailMessage();
+        applyFrom(message);
         message.setBcc(bcc); // Use BCC for privacy
         message.setSubject("Group Mentorship Meeting: " + title);
         message.setText("Dear Students,\n\n" +
@@ -204,9 +256,8 @@ public class EmailService {
         sendHtmlEmail(studentEmail, "Leave Request " + status, html);
     }
 
-    @Async("emailExecutor")
-    public void sendActionOtp(String to, String otp, String actionDescription) {
-        String html = "<!DOCTYPE html>"
+    private String buildActionOtpHtml(String otp, String actionDescription) {
+        return "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
                 + "<meta charset='UTF-8'>"
@@ -247,8 +298,15 @@ public class EmailService {
                 + "  </div>"
                 + "</body>"
                 + "</html>";
+    }
 
-        sendHtmlEmail(to, "Verification OTP: " + otp, html);
+    @Async("emailExecutor")
+    public void sendActionOtp(String to, String otp, String actionDescription) {
+        sendHtmlEmailNow(to, "Verification OTP: " + otp, buildActionOtpHtml(otp, actionDescription));
+    }
+
+    public void sendActionOtpNow(String to, String otp, String actionDescription) {
+        sendHtmlEmailNow(to, "Verification OTP: " + otp, buildActionOtpHtml(otp, actionDescription));
     }
 
     @Async("emailExecutor")
