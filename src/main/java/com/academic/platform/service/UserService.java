@@ -28,7 +28,7 @@ import java.time.LocalDateTime;
 
 @Service
 public class UserService {
-    private static final long SESSION_TIMEOUT_SECONDS = 300;
+    private static final long SESSION_TIMEOUT_SECONDS = 600;
 
     @Autowired
     private UserRepository userRepository;

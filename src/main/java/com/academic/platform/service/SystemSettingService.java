@@ -60,7 +60,7 @@ public class SystemSettingService {
         ensureDefault("app.sms.twilio.auth-token", "", "Twilio auth token for SMS delivery");
         ensureDefault("app.sms.twilio.from-number", "", "Twilio sender phone number for SMS delivery");
         ensureDefault("defaultLanguage", "English", "Default UI language");
-        ensureDefault("sessionTimeout", "30", "Session timeout in minutes");
+        ensureDefault("sessionTimeout", "10", "Session timeout in minutes");
 
         // --- 1. Policy & Governance ---
         ensureDefault("policy.attendance.threshold", "75", "Minimum attendance percentage");
